@@ -15,4 +15,36 @@ CREATE TABLE translations (
     source_lang TEXT,
     target_lang TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 已有的表格
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 新增語言設定表格
+CREATE TABLE IF NOT EXISTS language_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id TEXT NOT NULL,
+    primary_lang TEXT NOT NULL,
+    secondary_lang TEXT,
+    is_translating BOOLEAN DEFAULT true,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(group_id)
+);
+
+-- 新增訂閱設定表格（為未來的儲值系統做準備）
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id TEXT NOT NULL,
+    subscription_type TEXT NOT NULL,  -- 'free', 'basic', 'premium'
+    start_date DATETIME NOT NULL,
+    end_date DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(group_id)
 ); 

@@ -258,7 +258,6 @@ async function handleTextMessage(event: LineEvent, env: Env) {
     processedTokens.add(event.replyToken);
 
     if (message === '!翻譯' || message === '/翻譯') {
-        // 回覆一個包含 LIFF URL 的按鈕
         await replyMessage(event.replyToken, [{
             type: 'template',
             altText: '請選擇翻譯語言',
@@ -268,7 +267,7 @@ async function handleTextMessage(event: LineEvent, env: Env) {
                 actions: [{
                     type: 'uri',
                     label: '設定翻譯語言',
-                    uri: 'https://liff.line.me/YOUR_LIFF_ID' // 替換成您的 LIFF URL
+                    uri: 'https://liff.line.me/2006832947-D4LqNXvV'
                 }]
             }
         }], env);
