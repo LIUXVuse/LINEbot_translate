@@ -32,57 +32,69 @@ export default {
         if (url.pathname === '/api/settings' && request.method === 'POST') {
             try {
                 const body = await request.json();
-                const { primaryLang, secondaryLang, groupId } = body;
-                
-                console.log('Received settings:', { primaryLang, secondaryLang, groupId });
+                console.log('Received request body:', body);
 
-                if (!primaryLang || !groupId) {
+                // 支援舊的 groupId 格式
+                const contextId = body.contextId || body.groupId;
+                const { primaryLang, secondaryLang, contextType } = body;
+                
+                if (!primaryLang || !contextId) {
                     return new Response(JSON.stringify({
                         success: false,
-                        error: 'Missing required fields'
+                        error: '缺少必要欄位',
+                        details: { primaryLang, contextId }
                     }), { 
                         status: 400,
-                        headers: {
-                            ...corsHeaders,
-                            'Content-Type': 'application/json'
-                        }
+                        headers: corsHeaders
                     });
                 }
-                
-                // 儲存到 D1 資料庫
-                const result = await env.DB.prepare(`
-                    INSERT INTO language_settings (group_id, primary_lang, secondary_lang)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(group_id) DO UPDATE SET
-                    primary_lang = excluded.primary_lang,
-                    secondary_lang = excluded.secondary_lang,
-                    updated_at = CURRENT_TIMESTAMP
-                `).bind(groupId, primaryLang, secondaryLang || null).run();
 
-                console.log('Database result:', result);
-                
-                return new Response(JSON.stringify({ 
-                    success: true,
-                    message: '設定已儲存'
-                }), { 
-                    status: 200,
-                    headers: {
-                        ...corsHeaders,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                // 儲存到 D1 資料庫
+                try {
+                    const result = await env.DB.prepare(`
+                        INSERT INTO language_settings (context_id, context_type, primary_lang, secondary_lang)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(context_id) DO UPDATE SET
+                        primary_lang = excluded.primary_lang,
+                        secondary_lang = excluded.secondary_lang,
+                        context_type = excluded.context_type,
+                        updated_at = CURRENT_TIMESTAMP
+                    `).bind(
+                        contextId,
+                        contextType || 'group',
+                        primaryLang,
+                        secondaryLang || null
+                    ).run();
+
+                    console.log('Database operation parameters:', {
+                        contextId,
+                        contextType: contextType || 'group',
+                        primaryLang,
+                        secondaryLang: secondaryLang || null
+                    });
+                    console.log('Database operation result:', result);
+                    
+                    return new Response(JSON.stringify({ 
+                        success: true,
+                        message: '設定已儲存'
+                    }), { 
+                        status: 200,
+                        headers: corsHeaders
+                    });
+                } catch (dbError) {
+                    console.error('Database error:', dbError);
+                    console.error('Error details:', dbError.message);
+                    throw dbError;
+                }
             } catch (error) {
-                console.error('Error saving settings:', error);
+                console.error('Error processing request:', error);
                 return new Response(JSON.stringify({ 
                     success: false,
-                    error: 'Error saving settings',
+                    error: '處理請求時發生錯誤',
                     details: error.message 
                 }), { 
                     status: 500,
-                    headers: {
-                        ...corsHeaders,
-                        'Content-Type': 'application/json'
-                    }
+                    headers: corsHeaders
                 });
             }
         }

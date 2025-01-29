@@ -97,9 +97,15 @@
         liff.init({ liffId: "2006832947-D4LqNXvV" })
         .then(() => {
             console.log('LIFF initialized');
+            // 檢查是否在 LINE 內開啟
+            if (!liff.isInClient()) {
+                alert('請在 LINE 應用程式內開啟此頁面');
+                return;
+            }
         })
         .catch(err => {
             console.error('LIFF initialization failed', err);
+            alert('初始化失敗，請稍後再試');
         });
 
         // 儲存設定
@@ -112,14 +118,46 @@
                 return;
             }
 
-            // 取得群組 ID
+            // 取得上下文
             const context = liff.getContext();
-            const groupId = context ? context.groupId : null;
+            console.log('LIFF context:', context);
 
-            if (!groupId) {
-                alert('無法取得群組資訊，請在群組中使用此功能');
+            // 根據不同場景獲取 ID
+            let contextId;
+            let contextType;
+            
+            if (!context) {
+                alert('無法取得 LIFF context，請稍後再試');
                 return;
             }
+
+            if (context.type === 'group') {
+                contextId = context.groupId;
+                contextType = 'group';
+            } else if (context.type === 'room') {
+                contextId = context.roomId;
+                contextType = 'room';
+            } else {
+                contextId = context.userId;
+                contextType = 'user';
+            }
+
+            if (!contextId) {
+                alert('無法取得對話資訊，請稍後再試');
+                return;
+            }
+
+            console.log('Sending settings:', {
+                primaryLang,
+                secondaryLang,
+                groupId: contextId,
+                contextType
+            });
+
+            // 添加更多日誌
+            console.log('Context:', context);
+            console.log('Context ID:', contextId);
+            console.log('Context Type:', contextType);
 
             // 發送設定到後端
             fetch('https://line-translate-bot.liupony2000.workers.dev/api/settings', {
@@ -130,21 +168,32 @@
                 body: JSON.stringify({
                     primaryLang,
                     secondaryLang: secondaryLang || undefined,
-                    groupId
+                    groupId: contextId,
+                    contextType
                 })
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        console.error('Server error:', data);
+                        throw new Error(data.error || '儲存失敗');
+                    });
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.success) {
                     alert('設定已儲存！');
-                    liff.closeWindow();
+                    if (liff.isInClient()) {
+                        liff.closeWindow();
+                    }
                 } else {
                     throw new Error(data.error || '儲存失敗');
                 }
             })
             .catch(error => {
-                console.error('Error saving settings:', error);
-                alert('設定儲存失敗，請稍後再試');
+                console.error('Error details:', error);
+                alert('設定儲存失敗：' + error.message);
             });
         }
     </script>

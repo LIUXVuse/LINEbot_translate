@@ -29,13 +29,14 @@ CREATE TABLE IF NOT EXISTS messages (
 -- 新增語言設定表格
 CREATE TABLE IF NOT EXISTS language_settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_id TEXT NOT NULL,
+    context_id TEXT NOT NULL,      -- 可以是 groupId, roomId 或 userId
+    context_type TEXT NOT NULL,    -- 'group', 'room', 或 'utou'
     primary_lang TEXT NOT NULL,
     secondary_lang TEXT,
     is_translating BOOLEAN DEFAULT true,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(group_id)
+    UNIQUE(context_id)
 );
 
 -- 新增訂閱設定表格（為未來的儲值系統做準備）
