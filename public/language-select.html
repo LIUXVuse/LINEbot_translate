@@ -7,7 +7,7 @@
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             padding: 20px;
             max-width: 500px;
             margin: 0 auto;
@@ -40,7 +40,6 @@
             border: 1px solid #ddd;
             border-radius: 5px;
             font-size: 16px;
-            margin-bottom: 10px;
         }
         button {
             background: #1DB446;
@@ -64,42 +63,44 @@
             <label for="primaryLang">主要翻譯語言</label>
             <select id="primaryLang" required>
                 <option value="">請選擇語言...</option>
-                <!-- 動態填充語言選項 -->
+                <option value="en">🇺🇸 英文 English</option>
+                <option value="zh-TW">🇹🇼 繁體中文</option>
+                <option value="zh-CN">🇨🇳 简体中文</option>
+                <option value="ja">🇯🇵 日文 日本語</option>
+                <option value="ko">🇰🇷 韓文 한국어</option>
+                <option value="vi">🇻🇳 越南文 Tiếng Việt</option>
+                <option value="th">🇹🇭 泰文 ภาษาไทย</option>
+                <option value="ru">🇷🇺 俄文 Русский</option>
+                <option value="ar">🇸🇦 阿拉伯文 العربية</option>
             </select>
         </div>
         <div class="form-group">
             <label for="secondaryLang">次要翻譯語言（選填）</label>
             <select id="secondaryLang">
                 <option value="">不需要次要翻譯</option>
-                <!-- 動態填充語言選項 -->
+                <option value="en">🇺🇸 英文 English</option>
+                <option value="zh-TW">🇹🇼 繁體中文</option>
+                <option value="zh-CN">🇨🇳 简体中文</option>
+                <option value="ja">🇯🇵 日文 日本語</option>
+                <option value="ko">🇰🇷 韓文 한국어</option>
+                <option value="vi">🇻🇳 越南文 Tiếng Việt</option>
+                <option value="th">🇹🇭 泰文 ภาษาไทย</option>
+                <option value="ru">🇷🇺 俄文 Русский</option>
+                <option value="ar">🇸🇦 阿拉伯文 العربية</option>
             </select>
         </div>
         <button onclick="saveSettings()">確認設定</button>
     </div>
 
     <script>
-        const LANGUAGES = [
-            { code: 'en', name: '英文', label: '🇺🇸 英文 English' },
-            { code: 'zh-TW', name: '繁體中文', label: '🇹🇼 繁體中文' },
-            { code: 'zh-CN', name: '簡體中文', label: '🇨🇳 简体中文' },
-            { code: 'ja', name: '日文', label: '🇯🇵 日文 日本語' },
-            { code: 'ko', name: '韓文', label: '🇰🇷 韓文 한국어' },
-            { code: 'vi', name: '越南文', label: '🇻🇳 越南文 Tiếng Việt' },
-            { code: 'th', name: '泰文', label: '🇹🇭 泰文 ภาษาไทย' },
-            // ... 可以添加更多語言
-        ];
-
         // 初始化 LIFF
-        liff.init({ liffId: "YOUR_LIFF_ID" }).then(() => {
-            // 填充語言選項
-            const primarySelect = document.getElementById('primaryLang');
-            const secondarySelect = document.getElementById('secondaryLang');
-
-            LANGUAGES.forEach(lang => {
-                primarySelect.add(new Option(lang.label, lang.code));
-                secondarySelect.add(new Option(lang.label, lang.code));
-            });
-        }).catch(console.error);
+        liff.init({ liffId: "2006832947-D4LqNXvV" })
+        .then(() => {
+            console.log('LIFF initialized');
+        })
+        .catch(err => {
+            console.error('LIFF initialization failed', err);
+        });
 
         // 儲存設定
         function saveSettings() {
@@ -111,8 +112,17 @@
                 return;
             }
 
+            // 取得群組 ID
+            const context = liff.getContext();
+            const groupId = context ? context.groupId : null;
+
+            if (!groupId) {
+                alert('無法取得群組資訊，請在群組中使用此功能');
+                return;
+            }
+
             // 發送設定到後端
-            fetch('/api/settings', {
+            fetch('https://line-translate-bot.liupony2000.workers.dev/api/settings', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -120,11 +130,19 @@
                 body: JSON.stringify({
                     primaryLang,
                     secondaryLang: secondaryLang || undefined,
-                    groupId: liff.getContext().groupId
+                    groupId
                 })
-            }).then(() => {
-                liff.closeWindow();
-            }).catch(error => {
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('設定已儲存！');
+                    liff.closeWindow();
+                } else {
+                    throw new Error(data.error || '儲存失敗');
+                }
+            })
+            .catch(error => {
                 console.error('Error saving settings:', error);
                 alert('設定儲存失敗，請稍後再試');
             });
