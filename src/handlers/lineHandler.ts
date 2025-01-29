@@ -8,6 +8,7 @@ import {
     updateSecondaryLanguage,
     toggleTranslation
 } from './languageHandler';
+import { translateWithSecondary } from './translateHandler';
 
 // 儲存使用者的翻譯設定
 const userSettings = new Map<string, {
@@ -402,8 +403,53 @@ async function handleTextMessage(event: LineMessageEvent, env: Env) {
     // 處理一般訊息的翻譯
     const setting = await getLanguageSetting(env.DB, contextId);
     if (setting && setting.is_translating) {
-        // TODO: 實現翻譯邏輯
-        // 這裡之後會實現實際的翻譯功能
+        try {
+            console.log('開始翻譯訊息:', {
+                text,
+                primaryLang: setting.primary_lang,
+                secondaryLang: setting.secondary_lang
+            });
+
+            const translations = await translateWithSecondary(
+                text,
+                setting.primary_lang,
+                setting.secondary_lang || null,
+                env
+            );
+
+            // 準備回覆訊息
+            const messages = [];
+            
+            // 原文
+            messages.push({
+                type: 'text',
+                text: `🌐 原文：\n${text}`
+            });
+
+            // 主要語言翻譯
+            messages.push({
+                type: 'text',
+                text: `翻譯 (${getLangName(setting.primary_lang)})：\n${translations[0]}`
+            });
+
+            // 次要語言翻譯（如果有）
+            if (setting.secondary_lang && translations[1]) {
+                messages.push({
+                    type: 'text',
+                    text: `翻譯 (${getLangName(setting.secondary_lang)})：\n${translations[1]}`
+                });
+            }
+
+            // 發送翻譯結果
+            await replyMessage(event.replyToken, messages, env);
+            
+        } catch (error) {
+            console.error('翻譯過程中發生錯誤:', error);
+            await replyMessage(event.replyToken, [{
+                type: 'text',
+                text: '❌ 翻譯過程中發生錯誤，請稍後再試。'
+            }], env);
+        }
     }
 }
 
