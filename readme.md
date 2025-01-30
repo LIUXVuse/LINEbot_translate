@@ -140,9 +140,30 @@
 # 安裝依賴套件
 npm install
 
+# 複製並設定配置文件
+cp wrangler.toml.example wrangler.toml
+# 編輯 wrangler.toml 並填入您的 API 金鑰
+
 # 設置環境變數（首次使用需要）
 cp .env.example .env
 ```
+
+### ⚠️ 安全注意事項
+1. API 金鑰安全
+   - 永遠不要將含有真實 API 金鑰的 `wrangler.toml` 提交到版本控制系統
+   - 使用 `wrangler.toml.example` 作為範本，僅提交範例配置
+   - 在本地開發時，複製 `wrangler.toml.example` 到 `wrangler.toml` 並填入實際的 API 金鑰
+
+2. 敏感資訊保護
+   - LINE Channel Secret 和 Access Token
+   - Cloudflare 帳號 ID 和 API Token
+   - 其他第三方服務的 API 金鑰
+   這些都應該保持私密，不要上傳到公開倉庫
+
+3. 環境變數管理
+   - 在開發環境使用 `.env` 文件
+   - 在生產環境使用 Cloudflare 的環境變數設置
+   - 確保 `.env` 和 `wrangler.toml` 都已添加到 `.gitignore`
 
 ### 開發指令
 ```bash
