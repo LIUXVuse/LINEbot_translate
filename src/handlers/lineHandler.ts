@@ -280,69 +280,58 @@ export function createLanguageListFlex(type: 'a' | 'b' | 'c') {
 
 // 修改處理文字訊息的函數
 async function handleTextMessage(event: LineMessageEvent, env: Env) {
-    const text = event.message.text.trim();
-    const contextId = event.source.groupId || event.source.roomId || event.source.userId || '';
+    const text = event.message.text;
+    const contextId = event.source.groupId || event.source.userId || event.source.roomId;
     const contextType = event.source.type;
-    
-    console.log('收到訊息:', text);
-    
+
     // 處理指令
     if (text.startsWith('/')) {
-        const command = text.toLowerCase();
-        console.log('處理指令:', command);
-        
-        switch (command) {
-            case '/說明':
-            case '/help':
-                console.log('執行說明指令');
-                await replyMessage(event.replyToken, [{
+        if (text === '/設定' || text === '/翻譯') {
+            return await replyMessage(event.replyToken, [createLanguageSelectionFlex()], env);
+        } else if (text === '/狀態') {
+            const setting = await getLanguageSetting(contextId, contextType, env.DB);
+            return await replyMessage(event.replyToken, [{
+                type: 'text',
+                text: `📊 當前翻譯設定：\n主要語言A：${getLangName(setting?.primary_lang_a)}\n主要語言B：${getLangName(setting?.primary_lang_b)}\n次要語言C：${getLangName(setting?.secondary_lang_c)}\n自動翻譯：${setting?.is_translating ? '開啟 ✅' : '關閉 ❌'}`
+            }], env);
+        }
+        return;
+    }
+
+    // 處理設定語言的文字命令
+    if (text.startsWith('設定主要語言A:')) {
+        const langA = text.split(':')[1];
+        if (langA) {
+            await updatePrimaryLanguageA(contextId, contextType, langA, env.DB);
+            return await replyMessage(event.replyToken, [
+                {
                     type: 'text',
-                    text: `📖 LINE翻譯機器人使用說明\n\n` +
-                        `1️⃣ 基本指令：\n` +
-                        `• /翻譯 - 開始設定翻譯語言\n` +
-                        `• /設定 - 設定翻譯語言\n` +
-                        `• /狀態 - 查看目前翻譯設定\n` +
-                        `• /說明 - 顯示此說明\n\n` +
-                        `2️⃣ 使用方式：\n` +
-                        `• 設定完語言後，機器人會自動翻譯群組內的訊息\n` +
-                        `• 需要設定兩個主要語言(A和B)用於雙向翻譯\n` +
-                        `• 可以選擇設定第三語言(C)作為額外翻譯\n\n` +
-                        `3️⃣ 翻譯規則：\n` +
-                        `• 當使用語言A時：翻譯成B和C\n` +
-                        `• 當使用語言B時：翻譯成A和C\n` +
-                        `• 當使用語言C時：翻譯成A和B\n` +
-                        `• 使用其他語言時：翻譯成A、B和C`
-                }], env);
-                return;
-
-            case '/翻譯':
-            case '/translate':
-            case '/設定':
-            case '/settings':
-                console.log('執行翻譯設定指令');
-                await replyMessage(event.replyToken, [createLanguageSelectionFlex()], env);
-                return;
-
-            case '/status':
-            case '/狀態':
-                console.log('執行狀態查詢指令');
-                const setting = await getLanguageSetting(env.DB, contextId);
-                if (setting) {
-                    await replyMessage(event.replyToken, [{
-                        type: 'text',
-                        text: `📊 當前翻譯設定：\n` +
-                              `主要語言A：${getLangName(setting.primary_lang_a)}\n` +
-                              `主要語言B：${getLangName(setting.primary_lang_b)}\n` +
-                              `次要語言C：${setting.secondary_lang_c ? getLangName(setting.secondary_lang_c) : '未設定'}\n` +
-                              `自動翻譯：${setting.is_translating ? '開啟 ✅' : '關閉 ❌'}`
-                    }], env);
-                } else {
-                    await replyMessage(event.replyToken, [{
-                        type: 'text',
-                        text: '❗ 尚未設定翻譯語言，請使用 /settings 或 /設定 來設定語言。'
-                    }], env);
-                }
-                return;
+                    text: `✅ 已設定主要語言A為：${getLangName(langA)}\n\n請繼續設定主要語言B`
+                },
+                createLanguageListFlex('b')
+            ], env);
+        }
+    } else if (text.startsWith('設定主要語言B:')) {
+        const langB = text.split(':')[1];
+        if (langB) {
+            await updatePrimaryLanguageB(contextId, contextType, langB, env.DB);
+            return await replyMessage(event.replyToken, [
+                {
+                    type: 'text',
+                    text: `✅ 已設定主要語言B為：${getLangName(langB)}\n\n請繼續設定次要語言C`
+                },
+                createLanguageListFlex('c')
+            ], env);
+        }
+    } else if (text.startsWith('設定次要語言C:')) {
+        const langC = text.split(':')[1];
+        if (langC) {
+            await updateSecondaryLanguageC(contextId, contextType, langC, env.DB);
+            const setting = await getLanguageSetting(contextId, contextType, env.DB);
+            return await replyMessage(event.replyToken, [{
+                type: 'text',
+                text: `✅ 語言設定已完成！\n\n📊 當前翻譯設定：\n主要語言A：${setting?.primary_lang_a ? getLangName(setting.primary_lang_a) : '未設定'}\n主要語言B：${setting?.primary_lang_b ? getLangName(setting.primary_lang_b) : '未設定'}\n次要語言C：${setting?.secondary_lang_c ? getLangName(setting.secondary_lang_c) : '未設定'}\n自動翻譯：${setting?.is_translating ? '開啟 ✅' : '關閉 ❌'}\n\n🎉 現在可以開始使用翻譯功能了！\n直接發送訊息即可自動翻譯。`
+            }], env);
         }
     }
 
@@ -352,7 +341,7 @@ async function handleTextMessage(event: LineMessageEvent, env: Env) {
         return;
     }
 
-    const setting = await getLanguageSetting(env.DB, contextId);
+    const setting = await getLanguageSetting(contextId, contextType, env.DB);
     if (setting && setting.is_translating) {
         try {
             console.log('開始翻譯訊息:', {
@@ -373,7 +362,10 @@ async function handleTextMessage(event: LineMessageEvent, env: Env) {
 
             // 檢查翻譯結果
             if (!translations || translations.length === 0) {
-                throw new Error('未收到翻譯結果');
+                return [{
+                    type: 'text',
+                    text: '⚠️ 翻譯失敗，請稍後再試。'
+                }];
             }
 
             // 準備回覆訊息
@@ -386,127 +378,146 @@ async function handleTextMessage(event: LineMessageEvent, env: Env) {
             });
 
             // 主要語言A翻譯
-            if (translations[0]) {
+            if (translations[0] && !translations[0].startsWith('[翻譯錯誤]')) {
                 messages.push({
                     type: 'text',
-                    text: `翻譯 (${getLangName(setting.primary_lang_a)})：\n${translations[0]}`
+                    text: `🔄 翻譯 (${getLangName(setting.primary_lang_a)})：\n${translations[0]}`
                 });
             }
 
             // 主要語言B翻譯
-            if (translations[1]) {
+            if (translations[1] && !translations[1].startsWith('[翻譯錯誤]')) {
                 messages.push({
                     type: 'text',
-                    text: `翻譯 (${getLangName(setting.primary_lang_b)})：\n${translations[1]}`
+                    text: `🔄 翻譯 (${getLangName(setting.primary_lang_b)})：\n${translations[1]}`
                 });
             }
 
-            // 次要語言C翻譯（如果有）
-            if (setting.secondary_lang_c && translations[2]) {
+            // 次要語言C翻譯
+            if (translations[2] && !translations[2].startsWith('[翻譯錯誤]')) {
                 messages.push({
                     type: 'text',
-                    text: `翻譯 (${getLangName(setting.secondary_lang_c)})：\n${translations[2]}`
+                    text: `🔄 翻譯 (${getLangName(setting.secondary_lang_c)})：\n${translations[2]}`
+                });
+            }
+
+            // 如果所有翻譯都失敗
+            if (messages.length === 1) {
+                messages.push({
+                    type: 'text',
+                    text: '⚠️ 翻譯服務暫時無法使用，請稍後再試。'
                 });
             }
 
             console.log('準備發送翻譯結果:', messages);
+            return messages;
 
-            // 發送翻譯結果
-            await replyMessage(event.replyToken, messages, env);
-            
         } catch (error) {
             console.error('翻譯過程中發生錯誤:', error);
-            let errorMessage = '❌ 翻譯過程中發生錯誤，請稍後再試。';
-            
-            // 根據錯誤類型顯示不同的錯誤訊息
-            if (error.message.includes('過載') || error.message.includes('429')) {
-                errorMessage = '⚠️ 翻譯服務暫時過載，請稍後再試。';
-            } else if (error.message.includes('限制')) {
-                errorMessage = '⚠️ 已達到翻譯限制，請稍後再試。';
-            } else if (error.message.includes('未收到翻譯結果')) {
-                errorMessage = '⚠️ 無法完成翻譯，請確認文字內容後重試。';
-            }
-            
-            await replyMessage(event.replyToken, [{
+            return [{
                 type: 'text',
-                text: errorMessage
-            }], env);
+                text: '⚠️ 翻譯過程中發生錯誤，請稍後再試。'
+            }];
         }
-    } else {
-        console.log('未啟用翻譯或尚未設定語言');
     }
 }
 
 // 處理 postback 事件
 export async function handlePostback(event: LinePostbackEvent, env: Env): Promise<void> {
-    const data = new URLSearchParams(event.postback.data);
-    const action = data.get('action');
-    const contextId = event.source.groupId || event.source.userId || event.source.roomId;
-    const contextType = event.source.type;
-
-    if (!contextId) {
-        throw new Error('無法獲取上下文 ID');
-    }
-
-    console.log('處理 postback 事件:', { action, data: event.postback.data });
-
     try {
-        switch (action) {
-            case 'show_primary_langs':
-                await replyMessage(event.replyToken, [createLanguageListFlex('a')], env);
-                break;
+        const contextId = event.source.groupId || event.source.userId || event.source.roomId;
+        const contextType = event.source.type;
+        if (!contextId) {
+            console.error('無法獲取 contextId');
+            return;
+        }
 
-            case 'show_secondary_langs':
-                await replyMessage(event.replyToken, [createLanguageListFlex('c')], env);
+        const data = new URLSearchParams(event.postback.data);
+        const action = data.get('action');
+        console.log('處理 postback 事件:', { action, data: event.postback.data });
+
+        switch (action) {
+            case 'show_primary_lang_a':
+                await replyMessage(event.replyToken, [
+                    {
+                        type: 'text',
+                        text: '請選擇主要語言A'
+                    },
+                    createLanguageListFlex('a')
+                ], env);
                 break;
 
             case 'set_primary_lang_a':
-            case 'set_primary_lang_b':
-            case 'set_secondary_lang_c':
-                const lang = data.get('lang');
-                if (lang) {
+                const langA = data.get('lang');
+                if (langA) {
                     try {
-                        // 檢查是否已有設定
-                        let setting = await getLanguageSetting(env.DB, contextId);
-                        
-                        if (setting) {
-                            // 更新現有設定
-                            if (action === 'set_primary_lang_a') {
-                                await updatePrimaryLanguageA(env.DB, contextId, lang);
-                            } else if (action === 'set_primary_lang_b') {
-                                await updatePrimaryLanguageB(env.DB, contextId, lang);
-                            } else if (action === 'set_secondary_lang_c') {
-                                await updateSecondaryLanguageC(env.DB, contextId, lang);
-                            }
-                        } else {
-                            // 創建新設定
-                            await saveLanguageSetting(env.DB, {
-                                context_id: contextId,
-                                context_type: contextType,
-                                primary_lang: lang,
-                                is_translating: true
-                            });
-                        }
-
-                        // 確認設定已更新
-                        setting = await getLanguageSetting(env.DB, contextId);
-                        if (!setting) {
-                            throw new Error('無法確認設定已更新');
-                        }
-
-                        // 回覆成功訊息
-                        await replyMessage(event.replyToken, [{
-                            type: 'text',
-                            text: `✅ 已設定${action.replace('_', ' ')}為：${getLanguageDisplayName(lang)}\n\n您可以繼續設定其他語言，或直接開始使用翻譯功能。`
-                        }], env);
+                        await updatePrimaryLanguageA(contextId, contextType, langA, env.DB);
+                        await replyMessage(event.replyToken, [
+                            {
+                                type: 'text',
+                                text: `✅ 已設定主要語言A為：${getLangName(langA)}\n\n請繼續設定主要語言B`
+                            },
+                            createLanguageListFlex('b')
+                        ], env);
                     } catch (error) {
-                        console.error(`設定${action.replace('_', ' ')}時發生錯誤:`, error);
+                        console.error('設定主要語言A時發生錯誤:', error);
                         await replyMessage(event.replyToken, [{
                             type: 'text',
                             text: `❌ 設定失敗：${error.message}`
                         }], env);
                     }
                 }
+                break;
+
+            case 'set_primary_lang_b':
+                const langB = data.get('lang');
+                if (langB) {
+                    try {
+                        await updatePrimaryLanguageB(contextId, contextType, langB, env.DB);
+                        await replyMessage(event.replyToken, [
+                            {
+                                type: 'text',
+                                text: `✅ 已設定主要語言B為：${getLangName(langB)}\n\n請繼續設定次要語言C`
+                            },
+                            createLanguageListFlex('c')
+                        ], env);
+                    } catch (error) {
+                        console.error('設定主要語言B時發生錯誤:', error);
+                        await replyMessage(event.replyToken, [{
+                            type: 'text',
+                            text: `❌ 設定失敗：${error.message}`
+                        }], env);
+                    }
+                }
+                break;
+
+            case 'set_secondary_lang_c':
+                const langC = data.get('lang');
+                if (langC) {
+                    try {
+                        await updateSecondaryLanguageC(contextId, contextType, langC, env.DB);
+                        const setting = await getLanguageSetting(contextId, contextType, env.DB);
+                        await replyMessage(event.replyToken, [{
+                            type: 'text',
+                            text: `✅ 語言設定已完成！\n\n📊 當前翻譯設定：\n主要語言A：${setting?.primary_lang_a ? getLangName(setting.primary_lang_a) : '未設定'}\n主要語言B：${setting?.primary_lang_b ? getLangName(setting.primary_lang_b) : '未設定'}\n次要語言C：${setting?.secondary_lang_c ? getLangName(setting.secondary_lang_c) : '未設定'}\n自動翻譯：${setting?.is_translating ? '開啟 ✅' : '關閉 ❌'}\n\n🎉 現在可以開始使用翻譯功能了！\n直接發送訊息即可自動翻譯。`
+                        }], env);
+                    } catch (error) {
+                        console.error('設定次要語言C時發生錯誤:', error);
+                        await replyMessage(event.replyToken, [{
+                            type: 'text',
+                            text: `❌ 設定失敗：${error.message}`
+                        }], env);
+                    }
+                }
+                break;
+
+            case 'toggle_translation':
+                const isTranslating = data.get('enable') === 'true';
+                await toggleTranslation(contextId, contextType, env.DB);
+                await replyMessage(event.replyToken, [{
+                    type: 'text',
+                    text: isTranslating ? '✅ 已開啟翻譯功能' : '❌ 已關閉翻譯功能'
+                }], env);
                 break;
         }
     } catch (error) {
@@ -565,7 +576,10 @@ export async function handleLineWebhook(request: Request, env: Env) {
             console.log('處理事件:', event.type);
             
             if (event.type === 'message' && 'message' in event && event.message.type === 'text') {
-                await handleTextMessage(event as LineMessageEvent, env);
+                const messages = await handleTextMessage(event as LineMessageEvent, env);
+                if (messages) {
+                    await replyMessage(event.replyToken, messages, env);
+                }
             } else if (event.type === 'postback' && 'postback' in event) {
                 await handlePostback(event as LinePostbackEvent, env);
             }

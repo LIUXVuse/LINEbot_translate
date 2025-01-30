@@ -40,7 +40,7 @@ CREATE TABLE language_settings (
     is_translating BOOLEAN DEFAULT true,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(context_id)
+    UNIQUE(context_id, context_type)
 );
 
 -- 新增訂閱設定表格（為未來的儲值系統做準備）
