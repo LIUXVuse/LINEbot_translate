@@ -4,18 +4,12 @@ import {
     LanguageSetting,
     saveLanguageSetting,
     getLanguageSetting,
-    updatePrimaryLanguage,
-    updateSecondaryLanguage,
+    updatePrimaryLanguageA,
+    updatePrimaryLanguageB,
+    updateSecondaryLanguageC,
     toggleTranslation
 } from './languageHandler';
-import { translateWithSecondary } from './translateHandler';
-
-// 儲存使用者的翻譯設定
-const userSettings = new Map<string, {
-    isTranslating: boolean,
-    primaryLang: string,
-    secondaryLang?: string
-}>();
+import { translateWithThreeLanguages } from './cloudflareTranslateHandler';
 
 // 將 Set 移到函數外部作為模組級別的變數
 const processedTokens = new Set<string>();
@@ -45,9 +39,13 @@ const ALL_LANGUAGES = [
 // 驗證 LINE 簽名
 async function verifySignature(request: Request, secret: string): Promise<boolean> {
     const signature = request.headers.get('x-line-signature');
-    if (!signature) return false;
+    if (!signature) {
+        console.error('缺少簽名');
+        return false;
+    }
 
     const body = await request.text();
+    console.log('收到的請求內容:', body);  // 添加日誌
     
     // 使用 Web Crypto API
     const encoder = new TextEncoder();
@@ -63,11 +61,14 @@ async function verifySignature(request: Request, secret: string): Promise<boolea
     const signatureBuffer = await crypto.subtle.sign('HMAC', key, bodyBuffer);
     const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
     
+    console.log('計算的簽名:', signatureBase64);  // 添加日誌
+    console.log('收到的簽名:', signature);  // 添加日誌
+    
     return signatureBase64 === signature;
 }
 
 // 生成語言選擇介面
-function createLanguageSelectionFlex() {
+export function createLanguageSelectionFlex() {
     return {
         type: "flex",
         altText: "選擇翻譯語言",
@@ -101,9 +102,9 @@ function createLanguageSelectionFlex() {
                         type: "button",
                         action: {
                             type: "postback",
-                            label: "📝 設定主要翻譯語言",
-                            data: "action=show_primary_langs",
-                            displayText: "設定主要翻譯語言"
+                            label: "📝 設定主要語言A",
+                            data: "action=show_primary_lang_a",
+                            displayText: "設定主要語言A"
                         },
                         style: "primary",
                         margin: "md",
@@ -113,9 +114,21 @@ function createLanguageSelectionFlex() {
                         type: "button",
                         action: {
                             type: "postback",
-                            label: "📝 設定次要翻譯語言",
-                            data: "action=show_secondary_langs",
-                            displayText: "設定次要翻譯語言"
+                            label: "📝 設定主要語言B",
+                            data: "action=show_primary_lang_b",
+                            displayText: "設定主要語言B"
+                        },
+                        style: "primary",
+                        margin: "md",
+                        height: "sm"
+                    },
+                    {
+                        type: "button",
+                        action: {
+                            type: "postback",
+                            label: "📝 設定次要語言C",
+                            data: "action=show_secondary_lang_c",
+                            displayText: "設定次要語言C"
                         },
                         style: "secondary",
                         margin: "md",
@@ -135,7 +148,7 @@ function createLanguageSelectionFlex() {
                             },
                             {
                                 type: "text",
-                                text: "• 主要語言：必選，將自動翻譯成此語言",
+                                text: "• 主要語言A和B：必選，用於雙向翻譯",
                                 size: "xs",
                                 color: "#aaaaaa",
                                 margin: "sm",
@@ -143,7 +156,7 @@ function createLanguageSelectionFlex() {
                             },
                             {
                                 type: "text",
-                                text: "• 次要語言：選填，可同時翻譯成兩種語言",
+                                text: "• 次要語言C：選填，同時翻譯成第三種語言",
                                 size: "xs",
                                 color: "#aaaaaa",
                                 wrap: true
@@ -175,95 +188,92 @@ function createLanguageSelectionFlex() {
 }
 
 // 生成語言列表選擇介面
-function createLanguageListFlex(isSecondary = false) {
-    const title = isSecondary ? "選擇次要翻譯語言" : "選擇主要翻譯語言";
-    const description = isSecondary ? 
-        "選擇一個次要語言，訊息將同時翻譯成兩種語言" : 
-        "選擇一個主要語言，所有訊息將自動翻譯成此語言";
+export function createLanguageListFlex(type: 'a' | 'b' | 'c') {
+    const titles = {
+        'a': '選擇主要語言A',
+        'b': '選擇主要語言B',
+        'c': '選擇次要語言C'
+    };
+
+    const descriptions = {
+        'a': '選擇第一個主要語言，用於雙向翻譯',
+        'b': '選擇第二個主要語言，用於雙向翻譯',
+        'c': '選擇次要語言，訊息將同時翻譯成此語言'
+    };
+
+    const actions = {
+        'a': 'set_primary_lang_a',
+        'b': 'set_primary_lang_b',
+        'c': 'set_secondary_lang_c'
+    };
+
+    const languages = [
+        { code: 'en', label: '🇺🇸 英文 English' },
+        { code: 'zh-TW', label: '🇹🇼 繁體中文' },
+        { code: 'zh-CN', label: '🇨🇳 简体中文' },
+        { code: 'ja', label: '🇯🇵 日文 日本語' },
+        { code: 'ko', label: '🇰🇷 韓文 한국어' },
+        { code: 'vi', label: '🇻🇳 越南文 Tiếng Việt' },
+        { code: 'th', label: '🇹🇭 泰文 ภาษาไทย' },
+        { code: 'ru', label: '🇷🇺 俄文 Русский' },
+        { code: 'ar', label: '🇸🇦 阿拉伯文 العربية' },
+        { code: 'fr', label: '🇫🇷 法文 Français' },
+        { code: 'de', label: '🇩🇪 德文 Deutsch' },
+        { code: 'es', label: '🇪🇸 西班牙文 Español' },
+        { code: 'it', label: '🇮🇹 義大利文 Italiano' },
+        { code: 'ms', label: '🇲🇾 馬來文 Bahasa Melayu' },
+        { code: 'id', label: '🇮🇩 印尼文 Bahasa Indonesia' },
+        { code: 'hi', label: '🇮🇳 印地文 हिन्दी' },
+        { code: 'pt', label: '🇵🇹 葡萄牙文 Português' }
+    ];
 
     return {
-        type: "flex",
-        altText: title,
-        contents: {
-            type: "bubble",
-            header: {
-                type: "box",
-                layout: "vertical",
-                contents: [
-                    {
-                        type: "text",
-                        text: `🌐 ${title}`,
-                        weight: "bold",
-                        size: "xl",
-                        align: "center",
-                        color: "#1DB446"
-                    }
-                ],
-                backgroundColor: "#f5f5f5"
-            },
-            body: {
-                type: "box",
-                layout: "vertical",
-                contents: [
-                    {
-                        type: "text",
-                        text: description,
-                        size: "sm",
-                        color: "#888888",
-                        wrap: true,
-                        margin: "md"
-                    },
-                    {
-                        type: "separator",
-                        margin: "xl"
-                    },
-                    {
-                        type: "box",
-                        layout: "vertical",
-                        margin: "xl",
-                        spacing: "sm",
-                        contents: ALL_LANGUAGES.map(lang => ({
-                            type: "box",
-                            layout: "horizontal",
-                            contents: [
-                                {
-                                    type: "text",
-                                    text: lang.label,
-                                    size: "sm",
-                                    gravity: "center",
-                                    flex: 1
-                                }
-                            ],
-                            action: {
-                                type: "postback",
-                                label: lang.name,
-                                data: `action=set_${isSecondary ? 'secondary' : 'primary'}_lang&lang=${lang.code}`,
-                                displayText: `選擇 ${lang.name}`
-                            },
-                            paddingAll: "md",
-                            backgroundColor: "#f5f5f5",
-                            cornerRadius: "md",
-                            margin: "xs"
-                        }))
-                    }
-                ]
-            },
-            footer: {
-                type: "box",
-                layout: "vertical",
-                contents: [
-                    {
+        type: "bubble",
+        header: {
+            type: "box",
+            layout: "vertical",
+            contents: [{
+                type: "text",
+                text: `🌐 ${titles[type]}`,
+                weight: "bold",
+                size: "xl",
+                align: "center",
+                color: "#1DB446"
+            }],
+            backgroundColor: "#f5f5f5"
+        },
+        body: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+                {
+                    type: "text",
+                    text: descriptions[type],
+                    size: "sm",
+                    color: "#888888",
+                    wrap: true,
+                    margin: "md"
+                },
+                {
+                    type: "box",
+                    layout: "vertical",
+                    margin: "lg",
+                    spacing: "sm",
+                    contents: languages.map(lang => ({
                         type: "button",
                         action: {
                             type: "postback",
-                            label: "返回設定選單",
-                            data: "action=back_to_settings",
-                            displayText: "返回設定選單"
+                            label: lang.label,
+                            data: `action=${actions[type]}&lang=${lang.code}`,
+                            displayText: `選擇 ${lang.label}`
                         },
-                        style: "link"
-                    }
-                ]
-            }
+                        style: "primary",
+                        color: "#1DB446",
+                        margin: "sm",
+                        height: "sm"
+                    }))
+                }
+            ]
         }
     };
 }
@@ -271,7 +281,7 @@ function createLanguageListFlex(isSecondary = false) {
 // 修改處理文字訊息的函數
 async function handleTextMessage(event: LineMessageEvent, env: Env) {
     const text = event.message.text.trim();
-    const contextId = event.source.groupId || event.source.roomId || event.source.userId;
+    const contextId = event.source.groupId || event.source.roomId || event.source.userId || '';
     const contextType = event.source.type;
     
     console.log('收到訊息:', text);
@@ -295,101 +305,37 @@ async function handleTextMessage(event: LineMessageEvent, env: Env) {
                         `• /說明 - 顯示此說明\n\n` +
                         `2️⃣ 使用方式：\n` +
                         `• 設定完語言後，機器人會自動翻譯群組內的訊息\n` +
-                        `• 可以設定主要和次要翻譯語言\n` +
-                        `• 支援多國語言互譯\n\n` +
-                        `3️⃣ 注意事項：\n` +
-                        `• 翻譯功能預設為開啟狀態\n` +
-                        `• 可隨時更改語言設定\n` +
-                        `• 如有問題請使用 /說明 查看說明`
+                        `• 需要設定兩個主要語言(A和B)用於雙向翻譯\n` +
+                        `• 可以選擇設定第三語言(C)作為額外翻譯\n\n` +
+                        `3️⃣ 翻譯規則：\n` +
+                        `• 當使用語言A時：翻譯成B和C\n` +
+                        `• 當使用語言B時：翻譯成A和C\n` +
+                        `• 當使用語言C時：翻譯成A和B\n` +
+                        `• 使用其他語言時：翻譯成A、B和C`
                 }], env);
                 return;
 
             case '/翻譯':
             case '/translate':
-                const setting = await getLanguageSetting(env.DB, contextId);
-                if (setting) {
-                    // 如果已有設定，顯示當前設定和重新設定選項
-                    await replyMessage(event.replyToken, [{
-                        type: 'flex',
-                        altText: '翻譯設定',
-                        contents: {
-                            type: 'bubble',
-                            body: {
-                                type: 'box',
-                                layout: 'vertical',
-                                contents: [
-                                    {
-                                        type: 'text',
-                                        text: '📝 當前翻譯設定',
-                                        weight: 'bold',
-                                        size: 'xl',
-                                        align: 'center',
-                                        color: '#1DB446'
-                                    },
-                                    {
-                                        type: 'box',
-                                        layout: 'vertical',
-                                        margin: 'lg',
-                                        contents: [
-                                            {
-                                                type: 'text',
-                                                text: `主要語言：${getLangName(setting.primary_lang)}`,
-                                                size: 'md',
-                                                margin: 'sm'
-                                            },
-                                            {
-                                                type: 'text',
-                                                text: `次要語言：${setting.secondary_lang ? getLangName(setting.secondary_lang) : '未設定'}`,
-                                                size: 'md',
-                                                margin: 'sm'
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                            footer: {
-                                type: 'box',
-                                layout: 'vertical',
-                                contents: [
-                                    {
-                                        type: 'button',
-                                        action: {
-                                            type: 'postback',
-                                            label: '重新設定語言',
-                                            data: 'action=show_primary_langs',
-                                            displayText: '重新設定語言'
-                                        },
-                                        style: 'primary'
-                                    }
-                                ]
-                            },
-                            styles: {
-                                body: {
-                                    backgroundColor: '#FFFFFF'
-                                }
-                            }
-                        }
-                    }], env);
-                } else {
-                    // 如果沒有設定，顯示語言選擇介面
-                    await replyMessage(event.replyToken, [createLanguageSelectionFlex()], env);
-                }
-                return;
-
-            case '/settings':
             case '/設定':
+            case '/settings':
+                console.log('執行翻譯設定指令');
                 await replyMessage(event.replyToken, [createLanguageSelectionFlex()], env);
                 return;
-                
+
             case '/status':
             case '/狀態':
-                const statusSetting = await getLanguageSetting(env.DB, contextId);
-                if (statusSetting) {
-                    const message = {
+                console.log('執行狀態查詢指令');
+                const setting = await getLanguageSetting(env.DB, contextId);
+                if (setting) {
+                    await replyMessage(event.replyToken, [{
                         type: 'text',
-                        text: `📊 當前翻譯設定：\n主要語言：${getLangName(statusSetting.primary_lang)}\n次要語言：${statusSetting.secondary_lang ? getLangName(statusSetting.secondary_lang) : '未設定'}\n自動翻譯：${statusSetting.is_translating ? '開啟 ✅' : '關閉 ❌'}`
-                    };
-                    await replyMessage(event.replyToken, [message], env);
+                        text: `📊 當前翻譯設定：\n` +
+                              `主要語言A：${getLangName(setting.primary_lang_a)}\n` +
+                              `主要語言B：${getLangName(setting.primary_lang_b)}\n` +
+                              `次要語言C：${setting.secondary_lang_c ? getLangName(setting.secondary_lang_c) : '未設定'}\n` +
+                              `自動翻譯：${setting.is_translating ? '開啟 ✅' : '關閉 ❌'}`
+                    }], env);
                 } else {
                     await replyMessage(event.replyToken, [{
                         type: 'text',
@@ -401,24 +347,37 @@ async function handleTextMessage(event: LineMessageEvent, env: Env) {
     }
 
     // 處理一般訊息的翻譯
+    if (!contextId) {
+        console.error('無法獲取 contextId');
+        return;
+    }
+
     const setting = await getLanguageSetting(env.DB, contextId);
     if (setting && setting.is_translating) {
         try {
             console.log('開始翻譯訊息:', {
                 text,
-                primaryLang: setting.primary_lang,
-                secondaryLang: setting.secondary_lang
+                primaryLangA: setting.primary_lang_a,
+                primaryLangB: setting.primary_lang_b,
+                secondaryLangC: setting.secondary_lang_c
             });
 
-            const translations = await translateWithSecondary(
+            // 使用 Cloudflare 翻譯服務
+            const translations = await translateWithThreeLanguages(
                 text,
-                setting.primary_lang,
-                setting.secondary_lang || null,
+                setting.primary_lang_a,
+                setting.primary_lang_b,
+                setting.secondary_lang_c || null,
                 env
             );
 
+            // 檢查翻譯結果
+            if (!translations || translations.length === 0) {
+                throw new Error('未收到翻譯結果');
+            }
+
             // 準備回覆訊息
-            const messages = [];
+            const messages: Array<{type: string, text: string}> = [];
             
             // 原文
             messages.push({
@@ -426,246 +385,136 @@ async function handleTextMessage(event: LineMessageEvent, env: Env) {
                 text: `🌐 原文：\n${text}`
             });
 
-            // 主要語言翻譯
-            messages.push({
-                type: 'text',
-                text: `翻譯 (${getLangName(setting.primary_lang)})：\n${translations[0]}`
-            });
-
-            // 次要語言翻譯（如果有）
-            if (setting.secondary_lang && translations[1]) {
+            // 主要語言A翻譯
+            if (translations[0]) {
                 messages.push({
                     type: 'text',
-                    text: `翻譯 (${getLangName(setting.secondary_lang)})：\n${translations[1]}`
+                    text: `翻譯 (${getLangName(setting.primary_lang_a)})：\n${translations[0]}`
                 });
             }
+
+            // 主要語言B翻譯
+            if (translations[1]) {
+                messages.push({
+                    type: 'text',
+                    text: `翻譯 (${getLangName(setting.primary_lang_b)})：\n${translations[1]}`
+                });
+            }
+
+            // 次要語言C翻譯（如果有）
+            if (setting.secondary_lang_c && translations[2]) {
+                messages.push({
+                    type: 'text',
+                    text: `翻譯 (${getLangName(setting.secondary_lang_c)})：\n${translations[2]}`
+                });
+            }
+
+            console.log('準備發送翻譯結果:', messages);
 
             // 發送翻譯結果
             await replyMessage(event.replyToken, messages, env);
             
         } catch (error) {
             console.error('翻譯過程中發生錯誤:', error);
+            let errorMessage = '❌ 翻譯過程中發生錯誤，請稍後再試。';
+            
+            // 根據錯誤類型顯示不同的錯誤訊息
+            if (error.message.includes('過載') || error.message.includes('429')) {
+                errorMessage = '⚠️ 翻譯服務暫時過載，請稍後再試。';
+            } else if (error.message.includes('限制')) {
+                errorMessage = '⚠️ 已達到翻譯限制，請稍後再試。';
+            } else if (error.message.includes('未收到翻譯結果')) {
+                errorMessage = '⚠️ 無法完成翻譯，請確認文字內容後重試。';
+            }
+            
             await replyMessage(event.replyToken, [{
                 type: 'text',
-                text: '❌ 翻譯過程中發生錯誤，請稍後再試。'
+                text: errorMessage
             }], env);
         }
+    } else {
+        console.log('未啟用翻譯或尚未設定語言');
     }
 }
 
-// 修改處理 postback 的函數
-async function handlePostback(event: LinePostbackEvent, env: Env) {
+// 處理 postback 事件
+export async function handlePostback(event: LinePostbackEvent, env: Env): Promise<void> {
     const data = new URLSearchParams(event.postback.data);
     const action = data.get('action');
-    const contextId = event.source.groupId || event.source.roomId || event.source.userId;
+    const contextId = event.source.groupId || event.source.userId || event.source.roomId;
     const contextType = event.source.type;
 
-    switch (action) {
-        case 'back_to_settings':
-            await replyMessage(event.replyToken, [createLanguageSelectionFlex()], env);
-            break;
+    if (!contextId) {
+        throw new Error('無法獲取上下文 ID');
+    }
 
-        case 'show_primary_langs':
-            await replyMessage(event.replyToken, [createLanguageListFlex(false)], env);
-            break;
+    console.log('處理 postback 事件:', { action, data: event.postback.data });
 
-        case 'show_secondary_langs':
-            await replyMessage(event.replyToken, [createLanguageListFlex(true)], env);
-            break;
+    try {
+        switch (action) {
+            case 'show_primary_langs':
+                await replyMessage(event.replyToken, [createLanguageListFlex('a')], env);
+                break;
 
-        case 'set_primary_lang':
-            const primaryLang = data.get('lang');
-            if (primaryLang) {
-                try {
-                    // 確保 contextType 是正確的類型
-                    let type: 'user' | 'group' | 'room' = 'user';
-                    if (event.source.type === 'group') type = 'group';
-                    if (event.source.type === 'room') type = 'room';
+            case 'show_secondary_langs':
+                await replyMessage(event.replyToken, [createLanguageListFlex('c')], env);
+                break;
 
-                    const setting: LanguageSetting = {
-                        context_id: contextId,
-                        context_type: type,
-                        primary_lang: primaryLang,
-                        is_translating: true
-                    };
-                    
-                    console.log('儲存語言設定:', setting); // 添加日誌
-                    await saveLanguageSetting(env.DB, setting);
-                    
-                    // 修改回應訊息，使用 Flex Message
-                    await replyMessage(event.replyToken, [{
-                        type: 'flex',
-                        altText: '語言設定成功',
-                        contents: {
-                            type: 'bubble',
-                            body: {
-                                type: 'box',
-                                layout: 'vertical',
-                                contents: [
-                                    {
-                                        type: 'text',
-                                        text: '✅ 主要語言設定成功',
-                                        weight: 'bold',
-                                        size: 'lg',
-                                        align: 'center',
-                                        color: '#1DB446'
-                                    },
-                                    {
-                                        type: 'text',
-                                        text: `已設定為：${getLangName(primaryLang)}`,
-                                        size: 'md',
-                                        align: 'center',
-                                        margin: 'md'
-                                    }
-                                ]
-                            },
-                            footer: {
-                                type: 'box',
-                                layout: 'vertical',
-                                contents: [
-                                    {
-                                        type: 'button',
-                                        action: {
-                                            type: 'postback',
-                                            label: '設定次要語言',
-                                            data: 'action=show_secondary_langs',
-                                            displayText: '設定次要語言'
-                                        },
-                                        style: 'primary'
-                                    },
-                                    {
-                                        type: 'button',
-                                        action: {
-                                            type: 'postback',
-                                            label: '完成設定',
-                                            data: 'action=finish_settings',
-                                            displayText: '完成設定'
-                                        },
-                                        style: 'secondary',
-                                        margin: 'md'
-                                    }
-                                ]
+            case 'set_primary_lang_a':
+            case 'set_primary_lang_b':
+            case 'set_secondary_lang_c':
+                const lang = data.get('lang');
+                if (lang) {
+                    try {
+                        // 檢查是否已有設定
+                        let setting = await getLanguageSetting(env.DB, contextId);
+                        
+                        if (setting) {
+                            // 更新現有設定
+                            if (action === 'set_primary_lang_a') {
+                                await updatePrimaryLanguageA(env.DB, contextId, lang);
+                            } else if (action === 'set_primary_lang_b') {
+                                await updatePrimaryLanguageB(env.DB, contextId, lang);
+                            } else if (action === 'set_secondary_lang_c') {
+                                await updateSecondaryLanguageC(env.DB, contextId, lang);
                             }
+                        } else {
+                            // 創建新設定
+                            await saveLanguageSetting(env.DB, {
+                                context_id: contextId,
+                                context_type: contextType,
+                                primary_lang: lang,
+                                is_translating: true
+                            });
                         }
-                    }], env);
-                } catch (error) {
-                    console.error('設定主要語言時發生錯誤:', error);
-                    await replyMessage(event.replyToken, [{
-                        type: 'text',
-                        text: '❌ 設定失敗，請稍後再試。'
-                    }], env);
-                }
-            }
-            break;
 
-        case 'set_secondary_lang':
-            const secondaryLang = data.get('lang');
-            if (secondaryLang) {
-                try {
-                    await updateSecondaryLanguage(env.DB, contextId, secondaryLang);
-                    
-                    // 獲取完整設定以確認
-                    const updatedSetting = await getLanguageSetting(env.DB, contextId);
-                    if (updatedSetting) {
-                        await replyMessage(event.replyToken, [{
-                            type: 'flex',
-                            altText: '語言設定成功',
-                            contents: {
-                                type: 'bubble',
-                                body: {
-                                    type: 'box',
-                                    layout: 'vertical',
-                                    contents: [
-                                        {
-                                            type: 'text',
-                                            text: '✅ 次要語言設定成功',
-                                            weight: 'bold',
-                                            size: 'lg',
-                                            align: 'center',
-                                            color: '#1DB446'
-                                        },
-                                        {
-                                            type: 'box',
-                                            layout: 'vertical',
-                                            margin: 'lg',
-                                            contents: [
-                                                {
-                                                    type: 'text',
-                                                    text: `主要語言：${getLangName(updatedSetting.primary_lang)}`,
-                                                    size: 'md'
-                                                },
-                                                {
-                                                    type: 'text',
-                                                    text: `次要語言：${getLangName(secondaryLang)}`,
-                                                    size: 'md',
-                                                    margin: 'md'
-                                                }
-                                            ]
-                                        }
-                                    ]
-                                },
-                                footer: {
-                                    type: 'box',
-                                    layout: 'vertical',
-                                    contents: [
-                                        {
-                                            type: 'button',
-                                            action: {
-                                                type: 'postback',
-                                                label: '完成設定',
-                                                data: 'action=finish_settings',
-                                                displayText: '完成設定'
-                                            },
-                                            style: 'primary'
-                                        }
-                                    ]
-                                }
-                            }
-                        }], env);
-                    }
-                } catch (error) {
-                    console.error('設定次要語言時發生錯誤:', error);
-                    if (error.message === '尚未設定主要語言') {
+                        // 確認設定已更新
+                        setting = await getLanguageSetting(env.DB, contextId);
+                        if (!setting) {
+                            throw new Error('無法確認設定已更新');
+                        }
+
+                        // 回覆成功訊息
                         await replyMessage(event.replyToken, [{
                             type: 'text',
-                            text: '❌ 請先設定主要翻譯語言。\n使用 /翻譯 指令開始設定。'
+                            text: `✅ 已設定${action.replace('_', ' ')}為：${getLanguageDisplayName(lang)}\n\n您可以繼續設定其他語言，或直接開始使用翻譯功能。`
                         }], env);
-                    } else {
+                    } catch (error) {
+                        console.error(`設定${action.replace('_', ' ')}時發生錯誤:`, error);
                         await replyMessage(event.replyToken, [{
                             type: 'text',
-                            text: '❌ 設定失敗，請稍後再試。'
+                            text: `❌ 設定失敗：${error.message}`
                         }], env);
                     }
                 }
-            }
-            break;
-
-        case 'toggle_translation':
-            const isTranslating = data.get('enable') === 'true';
-            await toggleTranslation(env.DB, contextId, isTranslating);
-            const message = {
-                type: 'text',
-                text: isTranslating ? '✅ 已開啟自動翻譯' : '❌ 已關閉自動翻譯'
-            };
-            await replyMessage(event.replyToken, [message], env);
-            break;
-
-        case 'finish_settings':
-            const currentSetting = await getLanguageSetting(env.DB, contextId);
-            if (currentSetting) {
-                await replyMessage(event.replyToken, [{
-                    type: 'text',
-                    text: `✨ 設定完成！\n\n` +
-                          `主要語言：${getLangName(currentSetting.primary_lang)}\n` +
-                          `次要語言：${currentSetting.secondary_lang ? getLangName(currentSetting.secondary_lang) : '未設定'}\n` +
-                          `翻譯狀態：${currentSetting.is_translating ? '開啟 ✅' : '關閉 ❌'}\n\n` +
-                          `您現在可以開始使用翻譯功能了！\n` +
-                          `• 直接發送訊息即可自動翻譯\n` +
-                          `• 使用 /狀態 查看目前設定\n` +
-                          `• 使用 /說明 查看更多說明`
-                }], env);
-            }
-            break;
+                break;
+        }
+    } catch (error) {
+        console.error('處理 postback 事件時發生錯誤:', error);
+        await replyMessage(event.replyToken, [{
+            type: 'text',
+            text: `❌ 處理請求時發生錯誤：${error.message}`
+        }], env);
     }
 }
 
@@ -673,6 +522,12 @@ async function handlePostback(event: LinePostbackEvent, env: Env) {
 function getLangName(code: string | null): string {
     const lang = ALL_LANGUAGES.find(l => l.code === code);
     return lang?.name || code || '未知語言';
+}
+
+// 修正 getLanguageDisplayName 函數
+function getLanguageDisplayName(langCode: string): string {
+    const lang = ALL_LANGUAGES.find(l => l.code === langCode);
+    return lang?.name || langCode || '未知語言';
 }
 
 async function replyMessage(replyToken: string, messages: any[], env: Env) {
@@ -703,14 +558,15 @@ export async function handleLineWebhook(request: Request, env: Env) {
             return new Response('Invalid signature', { status: 403 });
         }
 
-        const rawBody = await request.json() as { events: LineEvent[] };
+        const rawBody = await request.json() as { events: Array<LineMessageEvent | LinePostbackEvent> };
         const events = rawBody.events;
         
         for (const event of events) {
             console.log('處理事件:', event.type);
-            if (event.type === 'message' && event.message.type === 'text') {
+            
+            if (event.type === 'message' && 'message' in event && event.message.type === 'text') {
                 await handleTextMessage(event as LineMessageEvent, env);
-            } else if (event.type === 'postback') {
+            } else if (event.type === 'postback' && 'postback' in event) {
                 await handlePostback(event as LinePostbackEvent, env);
             }
         }

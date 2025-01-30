@@ -1,5 +1,5 @@
 -- 用戶資料表
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
     language_preference TEXT,
     translation_count INTEGER DEFAULT 0,
@@ -7,7 +7,7 @@ CREATE TABLE users (
 );
 
 -- 翻譯記錄表
-CREATE TABLE translations (
+CREATE TABLE IF NOT EXISTS translations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT,
     source_text TEXT,
@@ -26,13 +26,17 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 刪除舊的語言設定表格
+DROP TABLE IF EXISTS language_settings;
+
 -- 新增語言設定表格
-CREATE TABLE IF NOT EXISTS language_settings (
+CREATE TABLE language_settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     context_id TEXT NOT NULL,      -- 可以是 groupId, roomId 或 userId
-    context_type TEXT NOT NULL,    -- 'group', 'room', 或 'utou'
-    primary_lang TEXT NOT NULL,
-    secondary_lang TEXT,
+    context_type TEXT NOT NULL,    -- 'group', 'room', 或 'user'
+    primary_lang_a TEXT,           -- 主要語言A
+    primary_lang_b TEXT,           -- 主要語言B
+    secondary_lang_c TEXT,         -- 次要語言C
     is_translating BOOLEAN DEFAULT true,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

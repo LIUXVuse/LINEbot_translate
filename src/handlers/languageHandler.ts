@@ -4,8 +4,9 @@ import { D1Database } from '@cloudflare/workers-types';
 export interface LanguageSetting {
     context_id: string;
     context_type: 'group' | 'room' | 'user';
-    primary_lang: string;
-    secondary_lang?: string;
+    primary_lang_a: string;
+    primary_lang_b: string;
+    secondary_lang_c?: string;
     is_translating: boolean;
 }
 
@@ -14,45 +15,52 @@ export async function saveLanguageSetting(
     db: D1Database,
     setting: LanguageSetting
 ): Promise<void> {
-    const { context_id, context_type, primary_lang, secondary_lang, is_translating } = setting;
-    
-    console.log('準備儲存設定:', JSON.stringify({
-        context_id,
-        context_type,
-        primary_lang,
-        secondary_lang,
-        is_translating
-    }, null, 2));
+    console.log('準備儲存設定:', JSON.stringify(setting, null, 2));
 
     try {
+        // 確保所有必要欄位都有值
+        const safeSettings = {
+            context_id: setting.context_id,
+            context_type: setting.context_type || 'user',
+            primary_lang_a: setting.primary_lang_a || '',
+            primary_lang_b: setting.primary_lang_b || '',
+            secondary_lang_c: setting.secondary_lang_c || '',
+            is_translating: setting.is_translating === undefined ? true : setting.is_translating
+        };
+
+        console.log('安全處理後的設定:', JSON.stringify(safeSettings, null, 2));
+
         const result = await db.prepare(`
             INSERT INTO language_settings 
-            (context_id, context_type, primary_lang, secondary_lang, is_translating)
-            VALUES (?, ?, ?, ?, ?)
+            (context_id, context_type, primary_lang_a, primary_lang_b, secondary_lang_c, is_translating)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(context_id) DO UPDATE SET
-                primary_lang = excluded.primary_lang,
-                secondary_lang = excluded.secondary_lang,
+                context_type = excluded.context_type,
+                primary_lang_a = excluded.primary_lang_a,
+                primary_lang_b = excluded.primary_lang_b,
+                secondary_lang_c = excluded.secondary_lang_c,
                 is_translating = excluded.is_translating,
                 updated_at = CURRENT_TIMESTAMP
         `).bind(
-            context_id,
-            context_type,
-            primary_lang,
-            secondary_lang || null,
-            is_translating ? 1 : 0
+            safeSettings.context_id,
+            safeSettings.context_type,
+            safeSettings.primary_lang_a,
+            safeSettings.primary_lang_b,
+            safeSettings.secondary_lang_c,
+            safeSettings.is_translating ? 1 : 0
         ).run();
-        
+
         console.log('設定儲存結果:', result);
         
         // 驗證設定是否成功儲存
-        const saved = await getLanguageSetting(db, context_id);
+        const saved = await getLanguageSetting(db, safeSettings.context_id, safeSettings.context_type);
         console.log('儲存後的設定:', JSON.stringify(saved, null, 2));
         
         if (!saved) {
             throw new Error('設定儲存失敗：無法讀取已儲存的設定');
         }
     } catch (error) {
-        console.error('儲存設定時發生錯誤:', error);
+        console.error('儲存語言設定時發生錯誤:', error);
         throw error;
     }
 }
@@ -60,26 +68,32 @@ export async function saveLanguageSetting(
 // 獲取語言設定
 export async function getLanguageSetting(
     db: D1Database,
-    contextId: string
+    contextId: string,
+    contextType: string
 ): Promise<LanguageSetting | null> {
     try {
         const result = await db.prepare(`
             SELECT 
                 context_id,
                 context_type,
-                primary_lang,
-                secondary_lang,
+                primary_lang_a,
+                primary_lang_b,
+                secondary_lang_c,
                 is_translating
             FROM language_settings 
-            WHERE context_id = ?
-        `).bind(contextId)
+            WHERE context_id = ? AND context_type = ?
+        `).bind(contextId, contextType)
         .first();
         
         if (!result) return null;
         
-        // 確保布林值正確轉換
+        // 確保所有欄位都有值
         return {
-            ...result,
+            context_id: result.context_id,
+            context_type: result.context_type || 'user',
+            primary_lang_a: result.primary_lang_a || '',
+            primary_lang_b: result.primary_lang_b || '',
+            secondary_lang_c: result.secondary_lang_c || '',
             is_translating: result.is_translating === 1
         } as LanguageSetting;
     } catch (error) {
@@ -88,38 +102,79 @@ export async function getLanguageSetting(
     }
 }
 
-// 更新主要語言
-export async function updatePrimaryLanguage(
+// 更新主要語言A
+export async function updatePrimaryLanguageA(
     db: D1Database,
     contextId: string,
-    primaryLang: string
+    primaryLangA: string
 ): Promise<void> {
-    await db.prepare(`
-        UPDATE language_settings
-        SET primary_lang = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE context_id = ?
-    `).bind(primaryLang, contextId)
-    .run();
+    try {
+        const result = await db.prepare(`
+            UPDATE language_settings
+            SET primary_lang_a = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE context_id = ?
+        `).bind(primaryLangA, contextId)
+        .run();
+
+        if (!result.success) {
+            throw new Error('更新主要語言A失敗');
+        }
+
+        console.log('更新主要語言A成功:', { contextId, primaryLangA });
+    } catch (error) {
+        console.error('更新主要語言A時發生錯誤:', error);
+        throw error;
+    }
 }
 
-// 更新次要語言
-export async function updateSecondaryLanguage(
+// 更新主要語言B
+export async function updatePrimaryLanguageB(
     db: D1Database,
     contextId: string,
-    secondaryLang: string | null
+    primaryLangB: string
 ): Promise<void> {
-    // 先檢查是否已有設定
-    const existing = await getLanguageSetting(db, contextId);
-    if (!existing) {
-        throw new Error('尚未設定主要語言');
-    }
+    try {
+        const result = await db.prepare(`
+            UPDATE language_settings
+            SET primary_lang_b = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE context_id = ?
+        `).bind(primaryLangB, contextId)
+        .run();
 
-    await db.prepare(`
-        UPDATE language_settings
-        SET secondary_lang = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE context_id = ?
-    `).bind(secondaryLang, contextId)
-    .run();
+        if (!result.success) {
+            throw new Error('更新主要語言B失敗');
+        }
+
+        console.log('更新主要語言B成功:', { contextId, primaryLangB });
+    } catch (error) {
+        console.error('更新主要語言B時發生錯誤:', error);
+        throw error;
+    }
+}
+
+// 更新次要語言C
+export async function updateSecondaryLanguageC(
+    db: D1Database,
+    contextId: string,
+    secondaryLangC: string | null
+): Promise<void> {
+    try {
+        const result = await db.prepare(`
+            UPDATE language_settings
+            SET secondary_lang_c = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE context_id = ?
+        `).bind(secondaryLangC, contextId)
+        .run();
+
+        if (!result.success) {
+            throw new Error('更新次要語言C失敗');
+        }
+
+        console.log('更新次要語言C成功:', { contextId, secondaryLangC });
+    } catch (error) {
+        console.error('更新次要語言C時發生錯誤:', error);
+        throw error;
+    }
 }
 
 // 切換翻譯狀態
@@ -132,7 +187,7 @@ export async function toggleTranslation(
         UPDATE language_settings
         SET is_translating = ?, updated_at = CURRENT_TIMESTAMP
         WHERE context_id = ?
-    `).bind(isTranslating, contextId)
+    `).bind(isTranslating ? 1 : 0, contextId)
     .run();
 }
 
