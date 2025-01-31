@@ -12,23 +12,23 @@ interface CloudflareAPIResponse {
 
 // 語言代碼映射表
 const LANGUAGE_MAP = {
-    'en': 'English',
-    'vi': 'Vietnamese',
-    'zh-TW': 'Traditional Chinese',
-    'zh-CN': 'Simplified Chinese',
-    'ja': 'Japanese',
-    'ko': 'Korean',
-    'th': 'Thai',
-    'ru': 'Russian',
-    'ar': 'Arabic',
-    'fr': 'French',
-    'de': 'German',
-    'es': 'Spanish',
-    'it': 'Italian',
-    'ms': 'Malay',
-    'id': 'Indonesian',
-    'hi': 'Hindi',
-    'pt': 'Portuguese'
+    'en': 'en',
+    'vi': 'vi',
+    'zh-TW': 'zh',
+    'zh-CN': 'zh',
+    'ja': 'ja',
+    'ko': 'ko',
+    'th': 'th',
+    'ru': 'ru',
+    'ar': 'ar',
+    'fr': 'fr',
+    'de': 'de',
+    'es': 'es',
+    'it': 'it',
+    'ms': 'ms',
+    'id': 'id',
+    'hi': 'hi',
+    'pt': 'pt'
 };
 
 // 檢測文本語言
@@ -62,30 +62,27 @@ async function detectLanguage(text: string, env: Env): Promise<string | null> {
 // 翻譯文本
 async function translate(text: string, targetLang: string, env: Env): Promise<string> {
     try {
-        const response = await fetch('https://api.cloudflare.com/client/v4/ai/run/@cf/meta/m2m100-1.2b', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${env.CF_API_TOKEN}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                text: text,
-                target_lang: targetLang
-            })
+        console.log(`開始翻譯文本到 ${targetLang}`);
+        
+        // 確保目標語言代碼正確
+        const mappedLang = LANGUAGE_MAP[targetLang] || targetLang;
+        console.log(`使用映射後的語言代碼: ${mappedLang}`);
+
+        const response = await env.AI.run('@cf/meta/m2m100-1.2b', {
+            text: text,
+            target_lang: mappedLang
         });
 
-        if (!response.ok) {
-            throw new Error(`翻譯請求失敗: ${response.status} ${response.statusText}`);
+        if (!response || typeof response !== 'string') {
+            console.error('翻譯回應格式不正確:', response);
+            throw new Error('翻譯服務回應格式錯誤');
         }
-
-        const result = await response.json() as CloudflareAPIResponse;
-        if (!result.result.translated_text) {
-            throw new Error('未收到翻譯結果');
-        }
-        return result.result.translated_text;
+        
+        console.log(`翻譯完成: ${response}`);
+        return response.trim();
     } catch (error) {
         console.error('翻譯錯誤:', error);
-        throw error;
+        return `[翻譯失敗] ${error.message}`;
     }
 }
 
@@ -98,55 +95,39 @@ export async function translateWithThreeLanguages(
     env: Env
 ): Promise<string[]> {
     try {
-        const translations: string[] = [];
-        const detectedLang = await detectLanguage(text, env);
-        
-        if (!detectedLang) {
-            throw new Error('無法檢測文字語言');
-        }
+        console.log('開始三語言翻譯處理:', {
+            text,
+            primaryLangA,
+            primaryLangB,
+            secondaryLangC
+        });
 
-        // 根據檢測到的語言決定翻譯方向
-        if (detectedLang === primaryLangA) {
-            // 如果是主要語言A，翻譯成B
+        const translations: string[] = [];
+        
+        // 翻譯成主要語言B
+        try {
             const translationB = await translate(text, primaryLangB, env);
             translations.push(translationB);
-            
-            // 如果有設定次要語言C，也翻譯成C
-            if (secondaryLangC) {
+        } catch (error) {
+            console.error('翻譯到語言B失敗:', error);
+            translations.push(`[翻譯到${primaryLangB}失敗]`);
+        }
+        
+        // 如果有設定次要語言C，也翻譯成C
+        if (secondaryLangC) {
+            try {
                 const translationC = await translate(text, secondaryLangC, env);
                 translations.push(translationC);
-            }
-        } else if (detectedLang === primaryLangB) {
-            // 如果是主要語言B，翻譯成A
-            const translationA = await translate(text, primaryLangA, env);
-            translations.push(translationA);
-            
-            // 如果有設定次要語言C，也翻譯成C
-            if (secondaryLangC) {
-                const translationC = await translate(text, secondaryLangC, env);
-                translations.push(translationC);
-            }
-        } else if (detectedLang === secondaryLangC) {
-            // 如果是次要語言C，翻譯成A和B
-            const translationA = await translate(text, primaryLangA, env);
-            const translationB = await translate(text, primaryLangB, env);
-            translations.push(translationA, translationB);
-        } else {
-            // 如果是其他語言，翻譯成A和B
-            const translationA = await translate(text, primaryLangA, env);
-            const translationB = await translate(text, primaryLangB, env);
-            translations.push(translationA, translationB);
-            
-            // 如果有設定次要語言C，也翻譯成C
-            if (secondaryLangC) {
-                const translationC = await translate(text, secondaryLangC, env);
-                translations.push(translationC);
+            } catch (error) {
+                console.error('翻譯到語言C失敗:', error);
+                translations.push(`[翻譯到${secondaryLangC}失敗]`);
             }
         }
 
+        console.log('翻譯完成:', translations);
         return translations;
     } catch (error) {
         console.error('翻譯過程中發生錯誤:', error);
-        throw error;
+        return [`[翻譯失敗] ${error.message}`];
     }
 } 

@@ -1,5 +1,6 @@
 import { LineMessageEvent, Env } from '../types';
-import { translateWithThreeLanguages } from './cloudflareTranslateHandler';
+// import { translateWithThreeLanguages } from './cloudflareTranslateHandler';
+import { translate } from './deepseekTranslateHandler';
 import { getLanguageSetting } from '../services/languageSettingService';
 import { createLanguageSelectionFlex } from './lineHandler';
 
@@ -91,7 +92,7 @@ export async function handleMessage(event: LineMessageEvent, env: Env): Promise<
             secondaryLangC: setting.secondary_lang_c 
         });
 
-        const translations = await translateWithThreeLanguages(
+        const translations = await translate(
             text,
             setting.primary_lang_a,
             setting.primary_lang_b,
