@@ -414,7 +414,27 @@ export async function handlePostback(event: LinePostbackEvent, env: Env): Promis
             case 'set_primary_lang_a':
                 if (lang) {
                     try {
-                        await updatePrimaryLanguageA(env.DB, contextId, lang);
+                        // 先獲取當前設定
+                        let currentSetting = await getLanguageSetting(env.DB, contextId, contextType);
+                        
+                        // 如果沒有設定，創建新的設定
+                        if (!currentSetting) {
+                            currentSetting = {
+                                context_id: contextId,
+                                context_type: contextType,
+                                primary_lang_a: lang,
+                                primary_lang_b: '',
+                                secondary_lang_c: '',
+                                is_translating: true
+                            };
+                        } else {
+                            // 更新現有設定
+                            currentSetting.primary_lang_a = lang;
+                        }
+                        
+                        // 保存設定
+                        await saveLanguageSetting(env.DB, currentSetting);
+                        
                         console.log('更新主要語言A成功:', {
                             contextId,
                             primaryLangA: lang
@@ -439,7 +459,26 @@ export async function handlePostback(event: LinePostbackEvent, env: Env): Promis
             case 'set_primary_lang_b':
                 if (lang) {
                     try {
-                        await updatePrimaryLanguageB(env.DB, contextId, lang);
+                        // 先獲取當前設定
+                        let currentSetting = await getLanguageSetting(env.DB, contextId, contextType);
+                        
+                        // 如果沒有設定，創建新的設定
+                        if (!currentSetting) {
+                            currentSetting = {
+                                context_id: contextId,
+                                context_type: contextType,
+                                primary_lang_a: '',  // 這裡應該要求用戶先設定語言A
+                                primary_lang_b: lang,
+                                secondary_lang_c: '',
+                                is_translating: true
+                            };
+                            throw new Error('請先設定主要語言A');
+                        }
+
+                        // 更新設定
+                        currentSetting.primary_lang_b = lang;
+                        await saveLanguageSetting(env.DB, currentSetting);
+                        
                         console.log('更新主要語言B成功:', {
                             contextId,
                             primaryLangB: lang
@@ -455,7 +494,7 @@ export async function handlePostback(event: LinePostbackEvent, env: Env): Promis
                         console.error('設定主要語言B時發生錯誤:', error);
                         await replyMessage(event.replyToken, [{
                             type: 'text',
-                            text: `❌ 設定失敗：${error instanceof Error ? error.message : '未知錯誤'}`
+                            text: `❌ 設定失敗：${error instanceof Error ? error.message : '未知錯誤'}\n\n請使用 /設定 重新開始設定流程`
                         }], env);
                     }
                 }
@@ -464,36 +503,46 @@ export async function handlePostback(event: LinePostbackEvent, env: Env): Promis
             case 'set_secondary_lang_c':
                 if (lang) {
                     try {
-                        await updateSecondaryLanguageC(env.DB, contextId, lang);
+                        // 先獲取當前設定
+                        let currentSetting = await getLanguageSetting(env.DB, contextId, contextType);
+                        
+                        // 如果沒有設定，創建新的設定
+                        if (!currentSetting) {
+                            currentSetting = {
+                                context_id: contextId,
+                                context_type: contextType,
+                                primary_lang_a: '',
+                                primary_lang_b: '',
+                                secondary_lang_c: lang,
+                                is_translating: true
+                            };
+                            throw new Error('請先設定主要語言A和B');
+                        }
+
+                        // 檢查是否已設定主要語言A和B
+                        if (!currentSetting.primary_lang_a || !currentSetting.primary_lang_b) {
+                            throw new Error('請先設定主要語言A和B');
+                        }
+
+                        // 更新設定
+                        currentSetting.secondary_lang_c = lang;
+                        await saveLanguageSetting(env.DB, currentSetting);
+                        
                         console.log('更新次要語言C成功:', {
                             contextId,
                             secondaryLangC: lang
                         });
 
-                        // 取得最新設定
-                        const finalSetting = await getLanguageSetting(env.DB, contextId, contextType);
-                        if (!finalSetting) {
-                            throw new Error('無法取得最新設定');
-                        }
-
-                        // 所有語言都設定完成後，顯示完整的設定狀態
+                        // 顯示完整的語言設定
                         await replyMessage(event.replyToken, [{
                             type: 'text',
-                            text: `✅ 翻譯語言設定完成！\n\n` +
-                                  `目前設定：\n` +
-                                  `主要語言A：${finalSetting.primary_lang_a ? getLanguageDisplayName(finalSetting.primary_lang_a) : '未設定'}\n` +
-                                  `主要語言B：${finalSetting.primary_lang_b ? getLanguageDisplayName(finalSetting.primary_lang_b) : '未設定'}\n` +
-                                  `次要語言C：${finalSetting.secondary_lang_c ? getLanguageDisplayName(finalSetting.secondary_lang_c) : '未設定'}\n\n` +
-                                  `🎉 設定已完成！您現在可以開始使用翻譯功能。\n` +
-                                  `• 輸入訊息時會自動翻譯\n` +
-                                  `• 使用 /狀態 可以查看目前設定\n` +
-                                  `• 使用 /設定 可以重新設定語言`
+                            text: `✅ 語言設定完成！\n\n主要語言A：${currentSetting.primary_lang_a}\n主要語言B：${currentSetting.primary_lang_b}\n次要語言C：${currentSetting.secondary_lang_c}\n\n您可以開始使用翻譯功能了！`
                         }], env);
                     } catch (error) {
                         console.error('設定次要語言C時發生錯誤:', error);
                         await replyMessage(event.replyToken, [{
                             type: 'text',
-                            text: `❌ 設定失敗：${error instanceof Error ? error.message : '未知錯誤'}`
+                            text: `❌ 設定失敗：${error instanceof Error ? error.message : '未知錯誤'}\n\n請使用 /設定 重新開始設定流程`
                         }], env);
                     }
                 }
