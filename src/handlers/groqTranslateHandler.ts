@@ -74,6 +74,32 @@ export async function detectLanguage(text: string): Promise<string> {
     }
 }
 
+// 新增翻譯結果驗證函數
+function validateTranslationResult(text: string, targetLang: string): boolean {
+    // 檢查是否為空
+    if (!text || typeof text !== 'string') return false;
+
+    // 根據目標語言檢查文字系統
+    switch (targetLang) {
+        case 'zh-TW':
+        case 'zh-CN':
+            // 檢查是否包含中文字符
+            return /[\u4e00-\u9fa5]/.test(text) && 
+                   // 確保不包含泰文字符
+                   !/[\u0E00-\u0E7F]/.test(text);
+        case 'th':
+            // 檢查是否包含泰文字符
+            return /[\u0E00-\u0E7F]/.test(text) &&
+                   // 確保不包含中文字符
+                   !/[\u4e00-\u9fa5]/.test(text);
+        case 'en':
+            // 檢查是否只包含英文和基本標點
+            return /^[a-zA-Z0-9\s.,!?'"-]+$/.test(text);
+        default:
+            return true;
+    }
+}
+
 // 修改翻譯函數
 export async function translate(
     text: string,
@@ -100,14 +126,29 @@ export async function translate(
                     messages: [
                         {
                             role: "system",
-                            content: `You are a professional translator. Translate the following text to ${LANGUAGE_MAP[targetLang]}. Only return the translated text without any explanations, notes, or additional text.`
+                            content: `你是一個翻譯引擎，只負責將輸入文字翻譯成${LANGUAGE_MAP[targetLang]}。
+
+重要規則：
+1. 禁止輸出任何解釋、註釋或額外內容
+2. 禁止在回應中提及你是 AI 或機器學習模型
+3. 禁止描述翻譯過程或翻譯結果
+4. 禁止重複原文或加入原文對照
+5. 禁止加入任何標點符號說明
+6. 禁止加入任何換行或空白行
+
+文字系統規則：
+- 翻譯成中文時：只能使用中文漢字，不能混用其他文字
+- 翻譯成泰文時：只能使用泰文字母，不能混用其他文字
+- 翻譯成英文時：只能使用英文字母，不能混用其他文字
+
+你的唯一任務就是輸出翻譯後的文字，不要做任何其他事情。`
                         },
                         {
                             role: "user",
-                            content: text
+                            content: `將這段文字翻譯成${LANGUAGE_MAP[targetLang]}：${text}`
                         }
                     ],
-                    temperature: 0.3,
+                    temperature: 0,
                     max_tokens: 2000
                 })
             });
@@ -117,11 +158,36 @@ export async function translate(
             }
 
             const result = await response.json() as GroqResponse;
-            const translatedText = result.choices?.[0]?.message?.content?.trim() || '';
+            const translatedContent = result.choices?.[0]?.message?.content?.trim() || '';
+            
+            // 驗證翻譯結果
+            if (!validateTranslationResult(translatedContent, targetLang)) {
+                console.error('翻譯結果驗證失敗:', {
+                    targetLang,
+                    translatedContent
+                });
+                continue;
+            }
+
+            // 移除所有註釋和額外內容
+            const cleanedContent = translatedContent
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => {
+                    // 過濾掉任何包含註釋標記的行
+                    if (line.toLowerCase().includes('note:')) return false;
+                    if (line.includes('(')) return false;
+                    if (line.includes(')')) return false;
+                    if (line.includes('translation:')) return false;
+                    if (line.includes('翻譯:')) return false;
+                    if (line.includes('翻译:')) return false;
+                    return line.length > 0;
+                })
+                .join('');
 
             translations.push({
                 targetLang,
-                translatedText
+                translatedText: cleanedContent
             });
         }
 

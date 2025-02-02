@@ -1,35 +1,58 @@
 # Dependencies
 node_modules/
 .env
+.dev.vars
 
-# Cloudflare
+# Build
+dist/
+build/
 .wrangler/
-wrangler.toml
+.cloudflare/
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # Logs
 *.log
 npm-debug.log*
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
+yarn-debug.log*
+yarn-error.log*
 
 # Testing
 coverage/
+.nyc_output/
 
-# Production
-dist/
-build/
+# Environment
+.env
+.env.local
+.env.*.local
+.dev.vars
 
-# Misc
+# Cloudflare
+.wrangler/
+wrangler.toml
+.cloudflare/
+
+# Database
+*.sqlite
+*.db
+*.db-journal
+
+# Backup
+backup_*
+*.bak
+*.backup
+
+# System Files
 .DS_Store
+Thumbs.db
+
+# New additions
 .env.local
 .env.development.local
 .env.test.local
-.env.production.local 
+.env.production.local
+.cache/ 

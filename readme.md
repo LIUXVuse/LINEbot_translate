@@ -270,132 +270,59 @@ npx wrangler deployments list
    - 資料庫連接錯誤：確認 D1 資料庫狀態
 
 ## 更新日誌
-### 2025-02-02 (v1.1.0-stable-20250202)
-- [x] 完善文件
-  - 新增詳細的指令使用說明
-  - 優化指令文檔結構
-  - 添加各指令的具體功能描述和使用方式
-- [x] 功能優化
-  - 修復 LINE Webhook 驗證問題
-  - 優化環境變數配置
-  - 改善錯誤處理機制
 
-### 2025-01-30 (v1.0.0-stable-20250130)
-- [x] 完成功能全面測試
-  - 驗證語言設定流程 A → B → C 順序正確
-  - 確認多語言翻譯功能正常運作
-  - 測試群組聊天功能穩定性
-- [x] 安全性強化
-  - 移除敏感配置資訊
-  - 優化 API 金鑰管理
-  - 加強資料保護機制
-- [x] 系統穩定性提升
-  - 優化資料庫操作
-  - 改進錯誤處理
-  - 加強日誌記錄
+### 2025-02-02 (v1.0.1-beta-20250202)
+- 🔍 發現並記錄重要問題：
+  - LLM 翻譯品質不如預期
+  - 翻譯結果常包含不必要的註釋和說明
+  - 有時會混用不同語言的文字系統
+- 🛠️ 嘗試改進：
+  - 調整系統提示詞
+  - 優化翻譯結果的過濾機制
+  - 降低 temperature 參數以提高準確性
+- 📝 待解決問題：
+  - LLM 翻譯品質需要進一步提升
+  - 考慮評估其他翻譯模型或服務
 
-### ⚠️ 重要里程碑（請勿刪除）
-1. 核心功能穩定
-   - 語言設定流程完整可用
-   - 翻譯功能正常運作
-   - 群組聊天支援穩定
+### 2025-02-01 (v1.0.0-stable-20250201)
+✅ 最後一個穩定版本，建議生產環境使用此版本
+- 核心功能完整可用：
+  - 基本的翻譯功能正常運作
+  - 群組聊天支援穩定
+  - 語言設定流程完整
+- 資料庫操作穩定
+- 使用者介面完整
+- 錯誤處理機制健全
 
-2. 資料庫優化
-   - 使用 `UNIQUE(context_id, context_type)` 約束
-   - 資料存取效率提升
-   - 錯誤處理機制完善
+### 系統穩定性說明
+1. 穩定版本：v1.0.0-stable-20250201
+   - 已通過完整功能測試
+   - 建議用於生產環境
+   - 支援基本翻譯功能
 
-3. 使用者體驗改進
-   - 清晰的設定引導流程
-   - 即時的操作回饋
-   - 完整的狀態顯示
+2. 測試版本：v1.0.1-beta-20250202
+   - 包含最新的 LLM 改進嘗試
+   - 不建議用於生產環境
+   - 翻譯功能仍需改進
 
-4. 版本標記
-   - 最新穩定版本：`v1.0.0-stable-20250130`
-   - 經過完整功能測試
-   - 建議作為後續開發的基準版本
+### 部署建議
+1. 生產環境：
+   ```bash
+   # 切換到穩定版本
+   git checkout v1.0.0-stable-20250201
+   
+   # 部署到 Cloudflare
+   npx wrangler deploy --env production
+   ```
 
-### 2025/02/02
-- ✅ 完成所有基礎功能測試
-- 🔧 優化環境變數配置
-- 📊 改進錯誤處理機制
-- 🎯 提升使用者體驗
-
-### 2025/02/01
-- 🐛 發現並修復指令被 LLM 誤處理的問題
-- 🔧 調整指令處理邏輯
-- 📊 改進資料庫操作
-- 🎯 優化使用者體驗
-
-### 2025/01/31
-- ✨ 實作基本翻譯功能
-- 🛠️ 建立資料庫結構
-- 🔐 實作安全驗證
-- 📱 設計使用者介面
-
-## 待解決問題
-- [ ] 指令被 LLM 誤處理的問題
-- [ ] 資料庫操作優化
-- [ ] 效能優化
-- [ ] 使用者體驗改進
-
-## 技術架構
-- 後端：Cloudflare Workers
-- 資料庫：Cloudflare D1
-- 翻譯服務：Groq API
-- 訊息服務：LINE Messaging API
-
-## 注意事項
-- 需要設定環境變數
-- 需要設定 LINE Channel Secret 和 Access Token
-- 需要設定 Groq API Key
-
-## 參考文件
-- [LINE Messaging API](https://developers.line.biz/en/docs/messaging-api/)
-- [Cloudflare Workers](https://developers.cloudflare.com/workers/)
-- [Cloudflare D1](https://developers.cloudflare.com/d1/)
-
-## 錯誤處理指南
-
-### 常見錯誤及解決方法
-1. **fetchGroqAPI 未定義**
-   - 解決方法：確保已正確導入 fetchGroqAPI 函式
-   - 相關檔案：`src/handlers/deepseekTranslateHandler.ts`
-
-2. **originalDetectLanguage 未定義**
-   - 解決方法：新增語言檢測功能
-   - 相關檔案：`src/handlers/groqTranslateHandler.ts`
-
-3. **翻譯服務錯誤**
-   - 解決方法：檢查 API 金鑰是否有效，並確保網路連線正常
-
-## 監控與日誌系統
-
-### 新增監控功能
-1. **錯誤日誌**
-   - 記錄所有翻譯錯誤
-   - 包含錯誤類型、訊息、堆疊追蹤
-   - 記錄輸入文字和目標語言
-
-2. **API 錯誤日誌**
-   - 記錄所有 API 請求失敗
-   - 包含狀態碼、錯誤訊息
-   - 記錄請求 URL 和請求內容
-
-### 查詢日誌
-```bash
-# 查詢錯誤日誌
-npx wrangler d1 execute line-translator-db --local --command "SELECT * FROM error_logs ORDER BY timestamp DESC LIMIT 10"
-
-# 查詢 API 錯誤日誌
-npx wrangler d1 execute line-translator-db --local --command "SELECT * FROM api_error_logs ORDER BY timestamp DESC LIMIT 10"
-```
-
-## 最新更新 (2025/02/02)
-- 🔄 修復指令處理問題
-- 🌐 優化翻譯服務
-- 📝 改進錯誤處理
-- 🔍 增強日誌記錄
+2. 測試環境：
+   ```bash
+   # 切換到測試版本
+   git checkout v1.0.1-beta-20250202
+   
+   # 部署到測試環境
+   npx wrangler deploy --env staging
+   ```
 
 ## 開發歷程
 
@@ -445,3 +372,22 @@ npx wrangler d1 execute line-translator-db --local --command "SELECT * FROM api_
    - 完整的語言檢測服務
    - 更精確的翻譯結果
    - 改進的錯誤提示訊息
+
+## 更新歷程
+
+### 2024-03-27
+- 🔄 優化語言設定流程
+  - 改進了設定主要語言A、B和次要語言C的邏輯
+  - 新增了設定順序的檢查機制
+  - 優化了錯誤處理和提示訊息
+- 🐛 修復了以下問題：
+  - 修正了設定次要語言C時的錯誤
+  - 改善了錯誤訊息的顯示格式
+  - 優化了設定流程中的用戶體驗
+- 📝 改進了系統日誌
+  - 新增了更詳細的操作記錄
+  - 優化了錯誤追蹤機制
+- 🔐 穩定性改進
+  - 強化了資料庫操作的可靠性
+  - 改進了錯誤處理機制
+  - 優化了系統回應速度

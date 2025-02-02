@@ -62,10 +62,21 @@ export async function handleMessage(event: LineMessageEvent, env: Env): Promise<
 // 修改翻譯服務呼叫方式
 async function translateService(text: string, targetLanguages: string[], env: Env) {
     try {
-        // 直接使用傳入的 targetLanguages，移除無效的 setting 參數
+        // 檢測輸入文字的語言
+        const detectedLang = await detectLanguage(text);
+        console.log('檢測到的語言:', detectedLang);
+
+        // 根據檢測到的語言重新排序目標語言
+        const reorderedTargets = reorderTargetLanguages(
+            detectedLang,
+            targetLanguages
+        );
+        console.log('重新排序後的目標語言:', reorderedTargets);
+
+        // 呼叫翻譯服務
         return await translate(
             text,
-            targetLanguages,
+            reorderedTargets,
             env
         );
     } catch (error) {
@@ -75,6 +86,24 @@ async function translateService(text: string, targetLanguages: string[], env: En
             translatedText: '翻譯服務暫時不可用'
         }];
     }
+}
+
+// 新增目標語言重排序函數
+function reorderTargetLanguages(detectedLang: string, targetLanguages: string[]): string[] {
+    // 如果檢測到的語言不在目標語言列表中，保持原順序
+    if (!targetLanguages.includes(detectedLang)) {
+        return targetLanguages;
+    }
+
+    // 將檢測到的語言從目標列表中移除
+    const filteredTargets = targetLanguages.filter(lang => lang !== detectedLang);
+    
+    // 如果沒有其他目標語言，返回原列表
+    if (filteredTargets.length === 0) {
+        return targetLanguages;
+    }
+
+    return filteredTargets;
 }
 
 function getLangName(langCode: string): string {
@@ -124,28 +153,56 @@ function ensureString(input: any): string {
 
 // 修改翻譯結果處理
 export function processTranslationResults(translations: any[], originalText: string) {
-    const results = translations.map(t => {
-        const text = ensureString(t.translatedText);
-        const langCode = t.targetLang;
-        const langName = getLangName(langCode);
-        
-        return {
-            lang: langCode,
-            text: text.slice(0, 500),
-            langName
-        };
+    // 驗證輸入
+    if (!originalText || typeof originalText !== 'string') {
+        console.error('無效的原始文字:', originalText);
+        return [{
+            type: 'text',
+            text: '❌ 翻譯錯誤：無效的輸入文字'
+        }];
+    }
+
+    if (!Array.isArray(translations)) {
+        console.error('無效的翻譯結果:', translations);
+        return [{
+            type: 'text',
+            text: '❌ 翻譯錯誤：翻譯服務異常'
+        }];
+    }
+
+    const messages = [{
+        type: 'text',
+        text: `📝 原文：\n${originalText.slice(0, 200)}`
+    }];
+
+    // 過濾並處理翻譯結果
+    const validTranslations = translations.filter(t => {
+        if (!t || typeof t !== 'object') return false;
+        if (!t.targetLang || !t.translatedText) return false;
+        if (typeof t.translatedText !== 'string') return false;
+        // 確保翻譯結果與原文不同
+        if (t.translatedText.trim() === originalText.trim()) return false;
+        return true;
     });
 
-    return [
-        {
+    if (validTranslations.length === 0) {
+        messages.push({
             type: 'text',
-            text: `📌 原始訊息：${originalText.slice(0, 200)}`
-        },
-        ...results.map(t => ({
+            text: '❌ 翻譯失敗：無法獲得有效的翻譯結果'
+        });
+        return messages;
+    }
+
+    // 添加有效的翻譯結果
+    validTranslations.forEach(t => {
+        const langName = getLangName(t.targetLang);
+        messages.push({
             type: 'text',
-            text: `🌐 ${t.langName}：\n${t.text}`
-        }))
-    ];
+            text: `🔄 ${langName}：\n${t.translatedText.trim()}`
+        });
+    });
+
+    return messages;
 }
 
 async function handleTextMessage(event: LineMessageEvent, env: Env) {
