@@ -1,6 +1,14 @@
 import { handleLineWebhook } from './handlers/lineHandler';
 import { Env } from './types';
 
+interface RequestBody {
+    contextId?: string;
+    groupId?: string;
+    primaryLang?: string;
+    secondaryLang?: string;
+    contextType?: string;
+}
+
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         const url = new URL(request.url);
@@ -31,7 +39,7 @@ export default {
         // 處理語言設定
         if (url.pathname === '/api/settings' && request.method === 'POST') {
             try {
-                const body = await request.json();
+                const body = await request.json() as RequestBody;
                 console.log('Received request body:', body);
 
                 // 支援舊的 groupId 格式
@@ -81,17 +89,19 @@ export default {
                         status: 200,
                         headers: corsHeaders
                     });
-                } catch (dbError) {
-                    console.error('Database error:', dbError);
-                    console.error('Error details:', dbError.message);
-                    throw dbError;
+                } catch (error: unknown) {
+                    const errorMessage = error instanceof Error ? error.message : '未知資料庫錯誤';
+                    console.error('Database error:', error);
+                    console.error('Error details:', errorMessage);
+                    throw error;
                 }
-            } catch (error) {
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : '未知錯誤';
                 console.error('Error processing request:', error);
                 return new Response(JSON.stringify({ 
                     success: false,
                     error: '處理請求時發生錯誤',
-                    details: error.message 
+                    details: errorMessage 
                 }), { 
                     status: 500,
                     headers: corsHeaders

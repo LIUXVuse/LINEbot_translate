@@ -1,138 +1,84 @@
 import { LineMessageEvent, Env } from '../types';
-// import { translateWithThreeLanguages } from './cloudflareTranslateHandler';
-import { translate } from './deepseekTranslateHandler';
+import { translate, formatTranslationResults, detectLanguage, SupportedLanguageCode, isSupportedLanguage } from './groqTranslateHandler';
 import { getLanguageSetting } from '../services/languageSettingService';
 import { createLanguageSelectionFlex } from './lineHandler';
+import { CONFIG } from '../config';
+import { replyMessage, handleCommand } from './lineHandler';
 
 export async function handleMessage(event: LineMessageEvent, env: Env): Promise<any[]> {
     try {
-        const text = event.message.text;
-        console.log('收到訊息:', text);
-
-        // 處理指令
+        const text = String(event.message?.text || '').trim();
+        
+        // 優先處理指令，使用 lineHandler 中的 handleCommand
         if (text.startsWith('/')) {
-            const command = text.toLowerCase();
-            switch (command) {
-                case '/說明':
-                case '/help':
-                    return [{
-                        type: 'text',
-                        text: `📖 LINE翻譯機器人使用說明\n\n` +
-                            `1️⃣ 基本指令：\n` +
-                            `• /翻譯 - 開始設定翻譯語言\n` +
-                            `• /設定 - 設定翻譯語言\n` +
-                            `• /狀態 - 查看目前翻譯設定\n` +
-                            `• /說明 - 顯示此說明\n\n` +
-                            `2️⃣ 使用方式：\n` +
-                            `• 設定完語言後，機器人會自動翻譯群組內的訊息\n` +
-                            `• 需要設定兩個主要語言(A和B)用於雙向翻譯\n` +
-                            `• 可以選擇設定第三語言(C)作為額外翻譯\n\n` +
-                            `3️⃣ 翻譯規則：\n` +
-                            `• 當使用語言A時：翻譯成B和C\n` +
-                            `• 當使用語言B時：翻譯成A和C\n` +
-                            `• 當使用語言C時：翻譯成A和B\n` +
-                            `• 使用其他語言時：翻譯成A、B和C`
-                    }];
-                case '/翻譯':
-                case '/translate':
-                case '/設定':
-                case '/settings':
-                    return [{
-                        type: 'flex',
-                        altText: '選擇翻譯語言',
-                        contents: createLanguageSelectionFlex().contents
-                    }];
-                case '/狀態':
-                case '/status':
-                    const contextId = event.source.groupId || event.source.roomId || event.source.userId;
-                    const contextType = event.source.type;
-                    
-                    if (!contextId) {
-                        throw new Error('無法獲取對話 ID');
-                    }
-
-                    const setting = await getLanguageSetting(env.DB, contextId, contextType);
-                    if (setting) {
-                        return [{
-                            type: 'text',
-                            text: `📊 當前翻譯設定：\n` +
-                                  `主要語言A：${getLangName(setting.primary_lang_a)}\n` +
-                                  `主要語言B：${getLangName(setting.primary_lang_b)}\n` +
-                                  `次要語言C：${setting.secondary_lang_c ? getLangName(setting.secondary_lang_c) : '未設定'}\n` +
-                                  `自動翻譯：${setting.is_translating ? '開啟 ✅' : '關閉 ❌'}`
-                        }];
-                    } else {
-                        return [{
-                            type: 'text',
-                            text: '❗ 尚未設定翻譯語言，請使用 /翻譯 或 /設定 來設定語言。'
-                        }];
-                    }
-            }
-            return [];
+            console.log('檢測到指令，轉交給 handleCommand 處理:', text);
+            return await handleCommand(event, env);
         }
 
-        // 處理一般訊息
-        const contextId = event.source.groupId || event.source.roomId || event.source.userId;
+        // 如果不是指令，再進行翻譯處理
+        const contextId = event.source.groupId || event.source.userId || '';
         const contextType = event.source.type;
         
-        if (!contextId) {
-            throw new Error('無法獲取對話 ID');
-        }
-
         const setting = await getLanguageSetting(env.DB, contextId, contextType);
         if (!setting || !setting.is_translating) {
+            console.log('未啟用翻譯或尚未設定');
             return [];
         }
 
-        // 使用翻譯服務
-        console.log('開始翻譯訊息:', { 
-            text, 
-            primaryLangA: setting.primary_lang_a,
-            primaryLangB: setting.primary_lang_b,
-            secondaryLangC: setting.secondary_lang_c 
-        });
-
-        const translations = await translate(
-            text,
-            setting.primary_lang_a,
-            setting.primary_lang_b,
-            setting.secondary_lang_c || null,
+        // 強制轉換輸入為字串
+        const rawText = String(event.message?.text || '');
+        
+        // 簡單過濾非文字訊息
+        if (rawText.length === 0 || rawText === 'undefined') {
+            return [{
+                type: 'text',
+                text: '請傳送文字訊息',
+                emojis: []
+            }];
+        }
+        
+        // 防禦性翻譯處理
+        const translations = await translateService(
+            rawText,
+            [
+                setting?.primary_lang_a || 'en',
+                setting?.primary_lang_b || 'zh-TW',
+                ...(setting?.secondary_lang_c ? [setting.secondary_lang_c] : [])
+            ],
             env
         );
-
-        // 構建回應訊息
-        const messages = [{
-            type: 'text',
-            text: `🌐 原文：\n${text}`
-        }];
-
-        if (translations && translations.length > 0) {
-            const langNames = [
-                setting.primary_lang_a,
-                setting.primary_lang_b,
-                setting.secondary_lang_c
-            ].filter(Boolean);
-
-            translations.forEach((translation, index) => {
-                messages.push({
-                    type: 'text',
-                    text: `翻譯 (${getLangName(langNames[index])})：\n${translation}`
-                });
-            });
-        }
-
-        return messages;
+        
+        // 安全格式轉換
+        return processTranslationResults(translations, rawText);
     } catch (error) {
-        console.error('處理訊息時發生錯誤:', error);
+        console.error('處理文字訊息失敗:', error);
         return [{
             type: 'text',
-            text: `翻譯發生錯誤：${error.message}`
+            text: '處理訊息時發生錯誤，請稍後再試。'
+        }];
+    }
+}
+
+// 修改翻譯服務呼叫方式
+async function translateService(text: string, targetLanguages: string[], env: Env) {
+    try {
+        // 直接使用傳入的 targetLanguages，移除無效的 setting 參數
+        return await translate(
+            text,
+            targetLanguages,
+            env
+        );
+    } catch (error) {
+        console.error('翻譯服務錯誤:', error);
+        return [{
+            targetLang: 'error',
+            translatedText: '翻譯服務暫時不可用'
         }];
     }
 }
 
 function getLangName(langCode: string): string {
-    const langMap = {
+    const langMap: Record<SupportedLanguageCode, string> = {
         'en': '英文',
         'ja': '日文',
         'ko': '韓文',
@@ -151,5 +97,74 @@ function getLangName(langCode: string): string {
         'hi': '印地文',
         'pt': '葡萄牙文'
     };
-    return langMap[langCode] || langCode;
+
+    if (isSupportedLanguage(langCode)) {
+        return langMap[langCode];
+    }
+    return langCode;
+}
+
+// 完全重構的防禦性處理
+function ensureString(input: any): string {
+    // 防禦所有可能的非字串情況
+    if (input == null) return ''; // null/undefined
+    if (input instanceof Date) return input.toISOString();
+    if (Array.isArray(input)) return input.join(' ');
+    
+    try {
+        return String(input);
+    } catch {
+        try {
+            return JSON.stringify(input);
+        } catch {
+            return '';
+        }
+    }
+}
+
+// 修改翻譯結果處理
+export function processTranslationResults(translations: any[], originalText: string) {
+    const results = translations.map(t => {
+        const text = ensureString(t.translatedText);
+        const langCode = t.targetLang;
+        const langName = getLangName(langCode);
+        
+        return {
+            lang: langCode,
+            text: text.slice(0, 500),
+            langName
+        };
+    });
+
+    return [
+        {
+            type: 'text',
+            text: `📌 原始訊息：${originalText.slice(0, 200)}`
+        },
+        ...results.map(t => ({
+            type: 'text',
+            text: `🌐 ${t.langName}：\n${t.text}`
+        }))
+    ];
+}
+
+async function handleTextMessage(event: LineMessageEvent, env: Env) {
+    try {
+        const text = event.message.text;
+        const targetLanguages = ['en']; // 預設翻譯成英文
+
+        // 呼叫翻譯功能
+        const translations = await translate(text, targetLanguages, env);
+
+        // 回覆翻譯結果
+        await replyMessage(event.replyToken, [
+            { type: 'text', text: `原文：${text}` },
+            { type: 'text', text: `翻譯 (英文)：${translations[0].translatedText}` }
+        ], env);
+    } catch (error) {
+        console.error('處理文字訊息失敗:', error);
+        await replyMessage(event.replyToken, [
+            { type: 'text', text: '翻譯服務暫時不可用，請稍後再試' }
+        ], env);
+    }
 } 

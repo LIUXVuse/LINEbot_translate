@@ -1,7 +1,7 @@
 # LINE 多語言翻譯機器人專案說明
 
 ## 專案概述
-這是一個基於LINE Messaging API開發的多語言即時翻譯機器人，可以協助用戶在群組或私人聊天中進行即時翻譯服務。
+這是一個基於LINE Messaging API開發的多語言即時翻譯機器人，可以協助用戶在群組或私人聊天中進行即時翻譯服務。使用 Groq 提供的 Deepseek 模型進行高質量翻譯。
 
 ## 開發規劃
 ### MVP階段（第一階段）
@@ -15,7 +15,7 @@
    - [x] Cloudflare 服務整合
      - [x] 使用 Cloudflare Workers 處理後端邏輯
      - [x] 使用 Cloudflare D1 (SQLite) 作為資料庫
-   - [ ] DeepSeek API 翻譯服務
+   - [x] Groq API 翻譯服務（使用 Deepseek 模型）
 
 ### 第二階段
 1. 多語言支援擴充
@@ -100,13 +100,13 @@
 
 3. 外部服務整合
    - [x] LINE Messaging API
-   - [ ] DeepSeek 翻譯 API
+   - [x] Groq Deepseek 翻譯 API
    - [ ] 金流服務
 
 ## 成本評估
 1. API 費用
    - LINE Messaging API: 免費
-   - DeepSeek API: 依用量計費
+   - Groq API: 依用量計費
    - Cloudflare 服務: 基本版免費
    - 金流服務費用: 依交易量計費
 
@@ -142,7 +142,12 @@ npm install
 
 # 複製並設定配置文件
 cp wrangler.toml.example wrangler.toml
-# 編輯 wrangler.toml 並填入您的 API 金鑰
+# 編輯 wrangler.toml 並填入您的 API 金鑰：
+# - LINE Channel Secret
+# - LINE Channel Access Token
+# - Cloudflare Account ID
+# - Cloudflare API Token
+# - Groq API Key
 
 # 設置環境變數（首次使用需要）
 cp .env.example .env
@@ -157,7 +162,7 @@ cp .env.example .env
 2. 敏感資訊保護
    - LINE Channel Secret 和 Access Token
    - Cloudflare 帳號 ID 和 API Token
-   - 其他第三方服務的 API 金鑰
+   - Groq API Key
    這些都應該保持私密，不要上傳到公開倉庫
 
 3. 環境變數管理
@@ -283,7 +288,94 @@ npx wrangler deployments list
 - [x] 實現雙語翻譯設定功能
 - [x] 完成群組支援功能
 
+### 2024-02-02
+- [x] TypeScript 編譯錯誤修復
+  - 修復型別定義問題
+  - 優化檔案引入路徑
+  - 改善型別安全性
+  - 更新以下檔案的型別定義：
+    - translationService.ts
+    - lineHandler.ts
+    - postbackHandler.ts
+- [x] 程式碼結構優化
+  - 改善錯誤處理機制
+  - 優化型別檢查
+  - 確保專案可以順利編譯
+
 ## 參考文件
 - [LINE Messaging API](https://developers.line.biz/en/docs/messaging-api/)
 - [Cloudflare Workers](https://developers.cloudflare.com/workers/)
 - [Cloudflare D1](https://developers.cloudflare.com/d1/)
+
+## 錯誤處理指南
+
+### 常見錯誤及解決方法
+1. **fetchGroqAPI 未定義**
+   - 解決方法：確保已正確導入 fetchGroqAPI 函式
+   - 相關檔案：`src/handlers/deepseekTranslateHandler.ts`
+
+2. **originalDetectLanguage 未定義**
+   - 解決方法：新增語言檢測功能
+   - 相關檔案：`src/handlers/groqTranslateHandler.ts`
+
+3. **翻譯服務錯誤**
+   - 解決方法：檢查 API 金鑰是否有效，並確保網路連線正常
+
+## 監控與日誌系統
+
+### 新增監控功能
+1. **錯誤日誌**
+   - 記錄所有翻譯錯誤
+   - 包含錯誤類型、訊息、堆疊追蹤
+   - 記錄輸入文字和目標語言
+
+2. **API 錯誤日誌**
+   - 記錄所有 API 請求失敗
+   - 包含狀態碼、錯誤訊息
+   - 記錄請求 URL 和請求內容
+
+### 查詢日誌
+```bash
+# 查詢錯誤日誌
+npx wrangler d1 execute line-translator-db --local --command "SELECT * FROM error_logs ORDER BY timestamp DESC LIMIT 10"
+
+# 查詢 API 錯誤日誌
+npx wrangler d1 execute line-translator-db --local --command "SELECT * FROM api_error_logs ORDER BY timestamp DESC LIMIT 10"
+```
+
+## 最新更新 (2024/02/01)
+- 🔄 修復指令處理問題
+- 🌐 優化翻譯服務
+- 📝 改進錯誤處理
+- 🔍 增強日誌記錄
+
+## 開發歷程
+
+### 2024/02/01
+- 🐛 發現並嘗試修復指令被 LLM 誤處理的問題
+- 🔧 調整指令處理邏輯
+- 📊 改進資料庫操作
+- 🎯 優化使用者體驗
+
+### 2024/01/31
+- ✨ 實作基本翻譯功能
+- 🛠️ 建立資料庫結構
+- 🔐 實作安全驗證
+- 📱 設計使用者介面
+
+## 待解決問題
+- [ ] 指令被 LLM 誤處理的問題
+- [ ] 資料庫操作優化
+- [ ] 效能優化
+- [ ] 使用者體驗改進
+
+## 技術架構
+- 後端：Cloudflare Workers
+- 資料庫：Cloudflare D1
+- 翻譯服務：Groq API
+- 訊息服務：LINE Messaging API
+
+## 注意事項
+- 需要設定環境變數
+- 需要設定 LINE Channel Secret 和 Access Token
+- 需要設定 Groq API Key

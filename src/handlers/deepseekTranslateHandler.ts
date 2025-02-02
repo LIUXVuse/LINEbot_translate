@@ -1,126 +1,79 @@
-import { Env } from '../types';
-
-interface TranslationResult {
-    originalText: string;
-    primaryLangB: string;
-    secondaryLangC: string;
+// 新增翻譯結果格式驗證函式
+function validateTranslationResponse(response: any): boolean {
+  return (
+    Array.isArray(response) &&
+    response.every((item: any) => 
+      item.targetLang && 
+      item.translatedText &&
+      typeof item.targetLang === 'string' &&
+      typeof item.translatedText === 'string'
+    )
+  );
 }
 
-// 語言代碼映射表
-const LANGUAGE_MAP = {
-    'en': 'English',
-    'vi': 'Vietnamese',
-    'zh-TW': 'Traditional Chinese',
-    'zh-CN': 'Simplified Chinese',
-    'ja': 'Japanese',
-    'ko': 'Korean',
-    'th': 'Thai',
-    'ru': 'Russian',
-    'ar': 'Arabic',
-    'fr': 'French',
-    'de': 'German',
-    'es': 'Spanish',
-    'it': 'Italian',
-    'ms': 'Malay',
-    'id': 'Indonesian',
-    'hi': 'Hindi',
-    'pt': 'Portuguese'
-};
-
-// 翻譯文本
-export async function translate(
-    text: string,
-    primaryLangA: string,
-    primaryLangB: string,
-    secondaryLangC: string | null,
-    env: Env
-): Promise<string[]> {
+// 新增 fetchGroqAPI 函式
+async function fetchGroqAPI(text: string, targetLangs: string[]): Promise<any> {
     try {
-        console.log('開始使用 DeepSeek 翻譯，參數:', {
-            text,
-            primaryLangA,
-            primaryLangB,
-            secondaryLangC
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'deepseek-ai',
+                messages: [
+                    {
+                        role: 'system',
+                        content: '你是一位專業翻譯員，只需輸出翻譯結果'
+                    },
+                    {
+                        role: 'user',
+                        content: `將以下文字翻譯成 ${targetLangs.join(', ')}：${text}`
+                    }
+                ],
+                temperature: 0.3,
+                max_tokens: 1000
+            })
         });
 
-        const stream = await env.AI.run('@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', {
-            stream: true,
-            max_tokens: 512,
-            messages: [
-                {
-                    role: 'system',
-                    content: `你是一個專業的線上翻譯專家，客戶會透過API的方式與你互動。
-你會收到類似下面的請求，每次的語言不一定是這樣：
-text: '${text}',
-primaryLangA: '${primaryLangA}',
-primaryLangB: '${primaryLangB}',
-secondaryLangC: '${secondaryLangC}'
-
-**請直接幫我輸出翻譯以下格式，無需提供思考過程**
-'原語A': '原文',
-'主要語言B': 'B語言翻譯結果',
-'次要語言C': 'C語言翻譯結果'`
-                },
-                {
-                    role: 'user',
-                    content: text
-                }
-            ]
-        });
-
-        const response = new Response(stream, {
-            headers: { 'content-type': 'text/event-stream' }
-        });
-
-        const reader = response.body?.getReader();
-        if (!reader) {
-            throw new Error('無法獲取翻譯結果');
+        if (!response.ok) {
+            throw new Error(`API 請求失敗: ${response.status}`);
         }
 
-        let result = '';
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            result += new TextDecoder().decode(value);
-        }
-
-        // 解析翻譯結果
-        const translations = parseTranslationResult(result);
-        const results: string[] = [];
-
-        // 根據檢測到的語言決定翻譯順序
-        if (translations.primaryLangB) {
-            results.push(translations.primaryLangB);
-        }
-        if (translations.secondaryLangC && secondaryLangC) {
-            results.push(translations.secondaryLangC);
-        }
-
-        return results;
+        return await response.json();
     } catch (error) {
-        console.error('DeepSeek 翻譯錯誤:', error);
+        console.error('fetchGroqAPI 錯誤:', error);
         throw error;
     }
 }
 
-// 解析翻譯結果
-function parseTranslationResult(result: string): TranslationResult {
+// 修改翻譯處理流程
+export async function handleDeepSeekTranslation(text: string, targetLangs: string[]): Promise<Array<{targetLang: string, translatedText: string}>> {
     try {
-        // 移除多餘的字符和格式化
-        const cleanResult = result
-            .replace(/```json/g, '')
-            .replace(/```/g, '')
-            .trim();
+        // 新增輸入驗證
+        if (typeof text !== 'string' || text.length === 0) {
+            throw new Error('Invalid input text');
+        }
 
-        // 嘗試解析 JSON
-        const parsed = JSON.parse(cleanResult);
-        return {
-            originalText: parsed['原語A'] || '',
-            primaryLangB: parsed['主要語言B'] || '',
-            secondaryLangC: parsed['次要語言C'] || ''
-        };
+        const sanitizedText = text.slice(0, 1000);
+        const response = await fetchGroqAPI(sanitizedText, targetLangs);
+
+        // 驗證回應格式
+        if (!validateTranslationResponse(response)) {
+            throw new Error('Invalid translation response format');
+        }
+
+        return response.map((item: any) => ({
+            targetLang: String(item.targetLang || 'und').slice(0, 5),
+            translatedText: String(item.translatedText || '').trim().slice(0, 2000)
+        }));
+
     } catch (error) {
-        console.error('解析翻譯結果時發生錯誤:', error);
-        throw new Error('無法解析翻譯結果');
+        console.error('DeepSeek 翻譯處理失敗:', error);
+        return [{
+            targetLang: 'error',
+            translatedText: '翻譯服務暫時不可用，請稍後再試'
+        }];
     }
 } 

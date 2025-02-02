@@ -1,7 +1,6 @@
 import { CONFIG, updateConfig } from '../config';
 import { Env, LineEvent, LineMessageEvent, LinePostbackEvent } from '../types';
 import {
-    LanguageSetting,
     saveLanguageSetting,
     getLanguageSetting,
     updatePrimaryLanguageA,
@@ -9,7 +8,9 @@ import {
     updateSecondaryLanguageC,
     toggleTranslation
 } from './languageHandler';
-import { translateWithThreeLanguages } from './cloudflareTranslateHandler';
+import { detectLanguage } from '../services/languageDetection';
+import { translate } from './groqTranslateHandler';
+import type { LanguageSetting } from '../services/languageSettingService';
 
 // 將 Set 移到函數外部作為模組級別的變數
 const processedTokens = new Set<string>();
@@ -36,114 +37,114 @@ const ALL_LANGUAGES = [
     // ... 可以繼續添加更多語言
 ];
 
-// 驗證 LINE 簽名
-async function verifySignature(request: Request, secret: string): Promise<boolean> {
+// 確保只在一個地方定義 LanguageSetting 並正確匯入
+const languageSetting: LanguageSetting = {
+    context_id: '',
+    context_type: 'user',
+    primary_lang_a: '',
+    primary_lang_b: '',
+    secondary_lang_c: '',
+    is_translating: false
+};
+
+// 確保使用正確的 Request 類型
+async function verifySignature(request: Request<unknown, CfProperties<unknown>>, secret: string): Promise<boolean> {
     const signature = request.headers.get('x-line-signature');
     if (!signature) {
         console.error('缺少簽名');
         return false;
     }
 
-    const body = await request.text();
-    console.log('收到的請求內容:', body);  // 添加日誌
+    const body = await request.clone().text();
+    console.log('收到的請求內容:', body);
     
-    // 使用 Web Crypto API
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-        'raw',
-        encoder.encode(secret),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
-    );
-    
-    const bodyBuffer = encoder.encode(body);
-    const signatureBuffer = await crypto.subtle.sign('HMAC', key, bodyBuffer);
-    const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
-    
-    console.log('計算的簽名:', signatureBase64);  // 添加日誌
-    console.log('收到的簽名:', signature);  // 添加日誌
-    
-    return signatureBase64 === signature;
+    try {
+        // 使用 Web Crypto API
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(secret);
+        const key = await crypto.subtle.importKey(
+            'raw',
+            keyData,
+            {
+                name: 'HMAC',
+                hash: { name: 'SHA-256' }
+            },
+            false,
+            ['sign']
+        );
+        
+        const bodyBuffer = encoder.encode(body);
+        const signatureBuffer = await crypto.subtle.sign('HMAC', key, bodyBuffer);
+        const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+        
+        return signature === signatureBase64;
+    } catch (error) {
+        console.error('驗證簽名時發生錯誤:', error);
+        return false;
+    }
 }
 
 // 生成語言選擇介面
 export function createLanguageSelectionFlex() {
-    const flexMessage = {
-        type: "bubble",
-        header: {
-            type: "box",
-            layout: "vertical",
-            contents: [{
-                type: "text",
-                text: "🌐 翻譯設定",
-                weight: "bold",
-                size: "xl",
-                align: "center",
-                color: "#1DB446"
-            }],
-            backgroundColor: "#f5f5f5"
-        },
+    return {
+        type: 'bubble',
         body: {
-            type: "box",
-            layout: "vertical",
+            type: 'box',
+            layout: 'vertical',
             contents: [
                 {
-                    type: "text",
-                    text: "請選擇要設定的項目：",
-                    size: "md",
-                    weight: "bold",
-                    margin: "md"
+                    type: 'text',
+                    text: '請選擇翻譯語言',
+                    weight: 'bold',
+                    size: 'xl',
+                    align: 'center',
+                    color: '#1DB446'
                 },
                 {
-                    type: "button",
-                    action: {
-                        type: "postback",
-                        label: "📝 設定主要語言A",
-                        data: "action=show_primary_lang_a",
-                        displayText: "設定主要語言A"
-                    },
-                    style: "primary",
-                    margin: "md",
-                    height: "sm"
+                    type: 'text',
+                    text: '請選擇要設定的項目：',
+                    size: 'md',
+                    align: 'center',
+                    margin: 'md'
                 },
                 {
-                    type: "button",
+                    type: 'button',
                     action: {
-                        type: "postback",
-                        label: "📝 設定主要語言B",
-                        data: "action=show_primary_lang_b",
-                        displayText: "設定主要語言B"
+                        type: 'postback',
+                        label: '設定主要語言A',
+                        data: 'action=show_primary_lang_a',
+                        displayText: '設定主要語言A'
                     },
-                    style: "primary",
-                    margin: "md",
-                    height: "sm"
+                    style: 'primary',
+                    color: '#1DB446',
+                    margin: 'md'
                 },
                 {
-                    type: "button",
+                    type: 'button',
                     action: {
-                        type: "postback",
-                        label: "📝 設定次要語言C",
-                        data: "action=show_secondary_lang_c",
-                        displayText: "設定次要語言C"
+                        type: 'postback',
+                        label: '設定主要語言B',
+                        data: 'action=show_primary_lang_b',
+                        displayText: '設定主要語言B'
                     },
-                    style: "secondary",
-                    margin: "md",
-                    height: "sm"
+                    style: 'primary',
+                    color: '#1DB446',
+                    margin: 'md'
+                },
+                {
+                    type: 'button',
+                    action: {
+                        type: 'postback',
+                        label: '設定次要語言C',
+                        data: 'action=show_secondary_lang_c',
+                        displayText: '設定次要語言C'
+                    },
+                    style: 'secondary',
+                    color: '#666666',
+                    margin: 'md'
                 }
             ]
-        },
-        styles: {
-            header: {
-                backgroundColor: "#f5f5f5"
-            }
         }
-    };
-
-    return {
-        type: "flex",
-        altText: "選擇翻譯語言",
-        contents: flexMessage
     };
 }
 
@@ -239,142 +240,118 @@ export function createLanguageListFlex(type: 'a' | 'b' | 'c') {
 }
 
 // 處理文字訊息
-async function handleTextMessage(event: LineMessageEvent, env: Env) {
-    const text = event.message.text.trim();
+export async function handleTextMessage(event: LineMessageEvent, env: Env) {
+    // 檢查訊息類型
+    if (event.message.type !== 'text') {
+        console.log('非文字訊息，跳過處理');
+        return;
+    }
+
+    const text = event.message.text;
+    if (!text) {
+        console.log('訊息內容為空，跳過處理');
+        return;
+    }
+
+    const trimmedText = text.trim();
     const contextId = event.source.groupId || event.source.roomId || event.source.userId || '';
     const contextType = event.source.type;
     
-    console.log('收到訊息:', text);
+    console.log('收到訊息:', trimmedText);
+    console.log('上下文資訊:', { contextId, contextType });
     
     try {
-        // 處理指令
-        if (text.startsWith('/')) {
-            const command = text.toLowerCase();
-            console.log('處理指令:', command);
-            
-            switch (command) {
-                case '/說明':
-                case '/help':
-                    console.log('執行說明指令');
-                    await replyMessage(event.replyToken, [{
-                        type: 'text',
-                        text: `📖 LINE翻譯機器人使用說明\n\n` +
-                            `1️⃣ 基本指令：\n` +
-                            `• /翻譯 - 開始設定翻譯語言\n` +
-                            `• /設定 - 設定翻譯語言\n` +
-                            `• /狀態 - 查看目前翻譯設定\n` +
-                            `• /說明 - 顯示此說明\n\n` +
-                            `2️⃣ 使用方式：\n` +
-                            `• 設定完語言後，機器人會自動翻譯群組內的訊息\n` +
-                            `• 需要設定兩個主要語言(A和B)用於雙向翻譯\n` +
-                            `• 可以選擇設定第三語言(C)作為額外翻譯\n\n` +
-                            `3️⃣ 翻譯規則：\n` +
-                            `• 當使用語言A時：翻譯成B和C\n` +
-                            `• 當使用語言B時：翻譯成A和C\n` +
-                            `• 當使用語言C時：翻譯成A和B\n` +
-                            `• 使用其他語言時：翻譯成A、B和C`
-                    }], env);
-                    return;
-
-                case '/翻譯':
-                case '/translate':
-                case '/設定':
-                case '/settings':
-                    console.log('執行翻譯設定指令');
-                    const flexMessage = createLanguageSelectionFlex();
-                    await replyMessage(event.replyToken, [flexMessage], env);
-                    return;
-
-                case '/status':
-                case '/狀態':
-                    console.log('執行狀態查詢指令');
-                    const setting = await getLanguageSetting(env.DB, contextId, contextType);
-                    if (setting) {
-                        await replyMessage(event.replyToken, [{
-                            type: 'text',
-                            text: `📊 當前翻譯設定：\n` +
-                                  `主要語言A：${getLangName(setting.primary_lang_a)}\n` +
-                                  `主要語言B：${getLangName(setting.primary_lang_b)}\n` +
-                                  `次要語言C：${setting.secondary_lang_c ? getLangName(setting.secondary_lang_c) : '未設定'}\n` +
-                                  `自動翻譯：${setting.is_translating ? '開啟 ✅' : '關閉 ❌'}`
-                        }], env);
-                    } else {
-                        await replyMessage(event.replyToken, [{
-                            type: 'text',
-                            text: '❗ 尚未設定翻譯語言，請使用 /settings 或 /設定 來設定語言。'
-                        }], env);
-                    }
-                    return;
-            }
-        }
-
-        // 處理一般訊息的翻譯
-        if (!contextId) {
-            console.error('無法獲取 contextId');
+        // 先處理指令
+        if (trimmedText.startsWith('/')) {
+            console.log('檢測到指令:', trimmedText);
+            await handleCommand(event, env);
             return;
         }
 
+        // 如果不是指令，則進行翻譯處理
+        console.log('開始檢查翻譯設定');
         const setting = await getLanguageSetting(env.DB, contextId, contextType);
-        if (setting && setting.is_translating) {
-            try {
-                console.log('開始翻譯訊息:', {
-                    text,
-                    primaryLangA: setting.primary_lang_a,
-                    primaryLangB: setting.primary_lang_b,
-                    secondaryLangC: setting.secondary_lang_c
-                });
-
-                // 使用 Cloudflare 翻譯服務
-                const translations = await translateWithThreeLanguages(
-                    text,
-                    setting.primary_lang_a,
-                    setting.primary_lang_b,
-                    setting.secondary_lang_c || null,
-                    env
-                );
-
-                // 準備回覆訊息
-                const messages: Array<{type: string, text: string}> = [];
-                
-                // 原文
-                messages.push({
-                    type: 'text',
-                    text: `🌐 原文：\n${text}`
-                });
-
-                // 添加翻譯結果
-                if (translations && translations.length > 0) {
-                    if (translations[0]) {
-                        messages.push({
-                            type: 'text',
-                            text: `翻譯 (${getLangName(setting.primary_lang_b)})：\n${translations[0]}`
-                        });
-                    }
-                    
-                    if (translations[1] && setting.secondary_lang_c) {
-                        messages.push({
-                            type: 'text',
-                            text: `翻譯 (${getLangName(setting.secondary_lang_c)})：\n${translations[1]}`
-                        });
-                    }
-                }
-
-                // 發送回覆
-                await replyMessage(event.replyToken, messages, env);
-            } catch (error) {
-                console.error('翻譯過程中發生錯誤:', error);
-                await replyMessage(event.replyToken, [{
-                    type: 'text',
-                    text: `❌ 翻譯失敗：${error.message}`
-                }], env);
-            }
+        console.log('獲取到的翻譯設定:', setting);
+        
+        if (!setting || !setting.is_translating) {
+            console.log('未啟用翻譯或尚未設定');
+            return;
         }
-    } catch (error) {
-        console.error('處理訊息時發生錯誤:', error);
+
+        // 翻譯邏輯
+        console.log('開始翻譯訊息:', {
+            text: trimmedText,
+            primaryLangA: setting.primary_lang_a,
+            primaryLangB: setting.primary_lang_b,
+            secondaryLangC: setting.secondary_lang_c
+        });
+
+        console.log('呼叫翻譯 API');
+        // 根據輸入語言決定翻譯目標
+        const targetLanguages = [];
+        if (setting.primary_lang_a) targetLanguages.push(setting.primary_lang_a);
+        if (setting.primary_lang_b) targetLanguages.push(setting.primary_lang_b);
+        if (setting.secondary_lang_c) targetLanguages.push(setting.secondary_lang_c);
+
+        const translations = await translate(
+            trimmedText,
+            targetLanguages,
+            env
+        );
+        console.log('翻譯結果:', translations);
+
+        const responseMessages = [{
+            type: 'text',
+            text: `📝 原文：\n${trimmedText}`
+        }];
+        
+        console.log('準備組裝回覆訊息');
+        if (translations?.length) {
+            translations.forEach((translation: { targetLang: string; translatedText: string }) => {
+                if (translation?.translatedText) {
+                    console.log(`添加翻譯結果:`, translation);
+                    responseMessages.push({
+                        type: 'text',
+                        text: `🔄 ${getLangName(translation.targetLang)}：\n${translation.translatedText}`
+                    });
+                }
+            });
+        }
+
+        console.log('開始發送翻譯結果');
+        await replyMessage(event.replyToken, responseMessages, env);
+        console.log('翻譯結果發送完成');
+    } catch (error: unknown) {
+        console.error('處理文字訊息時發生錯誤:', error);
+        
+        // 記錄到錯誤日誌
         try {
+            console.log('記錄錯誤到資料庫');
+            await env.DB.prepare(`
+                INSERT INTO error_logs (
+                    timestamp,
+                    error_type,
+                    error_message,
+                    stack_trace,
+                    input_text
+                ) VALUES (?, ?, ?, ?, ?)
+            `).bind(
+                new Date().toISOString(),
+                'TEXT_HANDLER',
+                error instanceof Error ? error.message : 'Unknown error',
+                error instanceof Error ? error.stack : '',
+                trimmedText
+            ).run();
+        } catch (dbError) {
+            console.error('記錄錯誤到資料庫失敗:', dbError);
+        }
+
+        // 發送錯誤訊息給用戶
+        try {
+            console.log('發送錯誤訊息給用戶');
             await replyMessage(event.replyToken, [{
                 type: 'text',
-                text: '❌ 系統錯誤，請稍後再試。'
+                text: `❌ 處理訊息時發生錯誤：${error instanceof Error ? error.message : '未知錯誤'}`
             }], env);
         } catch (replyError) {
             console.error('發送錯誤訊息失敗:', replyError);
@@ -384,88 +361,163 @@ async function handleTextMessage(event: LineMessageEvent, env: Env) {
 
 // 處理 postback 事件
 export async function handlePostback(event: LinePostbackEvent, env: Env): Promise<void> {
-    const data = new URLSearchParams(event.postback.data);
-    const action = data.get('action');
-    const contextId = event.source.groupId || event.source.userId || event.source.roomId;
-    const contextType = event.source.type;
-
-    if (!contextId) {
-        throw new Error('無法獲取上下文 ID');
-    }
-
-    console.log('處理 postback 事件:', { action, data: event.postback.data });
-
     try {
+        const params = new URLSearchParams(event.postback.data);
+        const action = params.get('action');
+        const lang = params.get('lang');
+        const contextId = event.source.groupId || event.source.roomId || event.source.userId || '';
+        const contextType = event.source.type;
+        
+        // 初始化設定時包含 contextType
+        let setting = await getLanguageSetting(env.DB, contextId, contextType);
+        if (!setting) {
+            setting = {
+                context_id: contextId,
+                context_type: contextType,
+                primary_lang_a: '',
+                primary_lang_b: '',
+                secondary_lang_c: undefined,
+                is_translating: true
+            };
+        }
+        
+        console.log('處理 postback 事件:', { action, lang, data: event.postback.data });
+
         switch (action) {
-            case 'show_primary_langs':
-                await replyMessage(event.replyToken, [createLanguageListFlex('a')], env);
+            case 'show_primary_lang_a':
+                console.log('顯示主要語言A選擇清單');
+                await replyMessage(event.replyToken, [{
+                    type: 'flex',
+                    altText: '選擇主要語言A',
+                    contents: createLanguageListFlex('a')
+                }], env);
                 break;
 
-            case 'show_secondary_langs':
-                await replyMessage(event.replyToken, [createLanguageListFlex('c')], env);
+            case 'show_primary_lang_b':
+                console.log('顯示主要語言B選擇清單');
+                await replyMessage(event.replyToken, [{
+                    type: 'flex',
+                    altText: '選擇主要語言B',
+                    contents: createLanguageListFlex('b')
+                }], env);
+                break;
+
+            case 'show_secondary_lang_c':
+                console.log('顯示次要語言C選擇清單');
+                await replyMessage(event.replyToken, [{
+                    type: 'flex',
+                    altText: '選擇次要語言C',
+                    contents: createLanguageListFlex('c')
+                }], env);
                 break;
 
             case 'set_primary_lang_a':
-            case 'set_primary_lang_b':
-            case 'set_secondary_lang_c':
-                const lang = data.get('lang');
                 if (lang) {
                     try {
-                        // 檢查是否已有設定
-                        let setting = await getLanguageSetting(env.DB, contextId, contextType);
-                        
-                        if (setting) {
-                            // 更新現有設定
-                            if (action === 'set_primary_lang_a') {
-                                await updatePrimaryLanguageA(env.DB, contextId, lang);
-                            } else if (action === 'set_primary_lang_b') {
-                                await updatePrimaryLanguageB(env.DB, contextId, lang);
-                            } else if (action === 'set_secondary_lang_c') {
-                                await updateSecondaryLanguageC(env.DB, contextId, lang);
-                            }
-                        } else {
-                            // 創建新設定
-                            await saveLanguageSetting(env.DB, {
-                                context_id: contextId,
-                                context_type: contextType,
-                                primary_lang_a: lang,
-                                primary_lang_b: '',
-                                is_translating: true
-                            });
-                        }
+                        await updatePrimaryLanguageA(env.DB, contextId, lang);
+                        console.log('更新主要語言A成功:', {
+                            contextId,
+                            primaryLangA: lang
+                        });
 
-                        // 確認設定已更新
-                        setting = await getLanguageSetting(env.DB, contextId, contextType);
-                        if (!setting) {
-                            throw new Error('無法確認設定已更新');
-                        }
-
-                        // 回覆成功訊息
+                        // 設定完語言A後，直接顯示語言B的選擇清單
                         await replyMessage(event.replyToken, [{
-                            type: 'text',
-                            text: `✅ 已設定${action.replace('_', ' ')}為：${getLanguageDisplayName(lang)}\n\n您可以繼續設定其他語言，或直接開始使用翻譯功能。`
+                            type: 'flex',
+                            altText: '選擇主要語言B',
+                            contents: createLanguageListFlex('b')
                         }], env);
                     } catch (error) {
-                        console.error(`設定${action.replace('_', ' ')}時發生錯誤:`, error);
+                        console.error('設定主要語言A時發生錯誤:', error);
                         await replyMessage(event.replyToken, [{
                             type: 'text',
-                            text: `❌ 設定失敗：${error.message}`
+                            text: `❌ 設定失敗：${error instanceof Error ? error.message : '未知錯誤'}`
                         }], env);
                     }
                 }
+                break;
+
+            case 'set_primary_lang_b':
+                if (lang) {
+                    try {
+                        await updatePrimaryLanguageB(env.DB, contextId, lang);
+                        console.log('更新主要語言B成功:', {
+                            contextId,
+                            primaryLangB: lang
+                        });
+
+                        // 設定完語言B後，直接顯示語言C的選擇清單
+                        await replyMessage(event.replyToken, [{
+                            type: 'flex',
+                            altText: '選擇次要語言C',
+                            contents: createLanguageListFlex('c')
+                        }], env);
+                    } catch (error) {
+                        console.error('設定主要語言B時發生錯誤:', error);
+                        await replyMessage(event.replyToken, [{
+                            type: 'text',
+                            text: `❌ 設定失敗：${error instanceof Error ? error.message : '未知錯誤'}`
+                        }], env);
+                    }
+                }
+                break;
+
+            case 'set_secondary_lang_c':
+                if (lang) {
+                    try {
+                        await updateSecondaryLanguageC(env.DB, contextId, lang);
+                        console.log('更新次要語言C成功:', {
+                            contextId,
+                            secondaryLangC: lang
+                        });
+
+                        // 取得最新設定
+                        const finalSetting = await getLanguageSetting(env.DB, contextId, contextType);
+                        if (!finalSetting) {
+                            throw new Error('無法取得最新設定');
+                        }
+
+                        // 所有語言都設定完成後，顯示完整的設定狀態
+                        await replyMessage(event.replyToken, [{
+                            type: 'text',
+                            text: `✅ 翻譯語言設定完成！\n\n` +
+                                  `目前設定：\n` +
+                                  `主要語言A：${finalSetting.primary_lang_a ? getLanguageDisplayName(finalSetting.primary_lang_a) : '未設定'}\n` +
+                                  `主要語言B：${finalSetting.primary_lang_b ? getLanguageDisplayName(finalSetting.primary_lang_b) : '未設定'}\n` +
+                                  `次要語言C：${finalSetting.secondary_lang_c ? getLanguageDisplayName(finalSetting.secondary_lang_c) : '未設定'}\n\n` +
+                                  `🎉 設定已完成！您現在可以開始使用翻譯功能。\n` +
+                                  `• 輸入訊息時會自動翻譯\n` +
+                                  `• 使用 /狀態 可以查看目前設定\n` +
+                                  `• 使用 /設定 可以重新設定語言`
+                        }], env);
+                    } catch (error) {
+                        console.error('設定次要語言C時發生錯誤:', error);
+                        await replyMessage(event.replyToken, [{
+                            type: 'text',
+                            text: `❌ 設定失敗：${error instanceof Error ? error.message : '未知錯誤'}`
+                        }], env);
+                    }
+                }
+                break;
+
+            default:
+                console.log('未知的 postback 動作:', action);
+                await replyMessage(event.replyToken, [{
+                    type: 'text',
+                    text: '❌ 無效的操作'
+                }], env);
                 break;
         }
     } catch (error) {
         console.error('處理 postback 事件時發生錯誤:', error);
         await replyMessage(event.replyToken, [{
             type: 'text',
-            text: `❌ 處理請求時發生錯誤：${error.message}`
+            text: `❌ 處理請求時發生錯誤：${error instanceof Error ? error.message : '未知錯誤'}`
         }], env);
     }
 }
 
 // 輔助函數：獲取語言名稱
-function getLangName(code: string | null): string {
+function getLangName(code: string | null | undefined): string {
     const lang = ALL_LANGUAGES.find(l => l.code === code);
     return lang?.name || code || '未知語言';
 }
@@ -476,30 +528,37 @@ function getLanguageDisplayName(langCode: string): string {
     return lang?.name || langCode || '未知語言';
 }
 
-async function replyMessage(replyToken: string, messages: any[], env: Env) {
+export async function replyMessage(replyToken: string, messages: any[], env: Env) {
     try {
-        console.log('準備發送回覆:', {
-            replyToken,
-            messages
-        });
-
-        // 確保 flex message 格式正確
+        console.log('開始準備發送回覆訊息:', { replyToken });
+        console.log('訊息內容:', JSON.stringify(messages, null, 2));
+        
         const formattedMessages = messages.map(msg => {
+            console.log('格式化訊息:', msg.type);
             if (msg.type === 'flex') {
                 return {
-                    type: 'flex',
-                    altText: msg.altText || '翻譯設定',
+                    type: msg.type,
+                    altText: msg.altText,
                     contents: msg.contents
                 };
             }
-            return msg;
+            return {
+                type: msg.type,
+                text: msg.text
+            };
         });
+
+        console.log('準備發送到 LINE API');
+        console.log('請求內容:', JSON.stringify({
+            replyToken: replyToken,
+            messages: formattedMessages
+        }, null, 2));
 
         const response = await fetch(`${CONFIG.LINE_API_ENDPOINT}/message/reply`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${env.CHANNEL_ACCESS_TOKEN}`
+                'Authorization': `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`
             },
             body: JSON.stringify({
                 replyToken: replyToken,
@@ -511,28 +570,78 @@ async function replyMessage(replyToken: string, messages: any[], env: Env) {
         console.log('LINE API 回應:', {
             status: response.status,
             statusText: response.statusText,
-            body: responseText,
-            sentMessages: formattedMessages
+            body: responseText
         });
 
         if (!response.ok) {
-            throw new Error(`LINE API error: ${response.status} ${response.statusText} - ${responseText}`);
+            // 記錄到 API 錯誤日誌
+            await env.DB.prepare(`
+                INSERT INTO api_error_logs (
+                    timestamp,
+                    api_name,
+                    status_code,
+                    error_message,
+                    request_url,
+                    request_body
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            `).bind(
+                new Date().toISOString(),
+                'LINE_REPLY',
+                response.status,
+                responseText,
+                `${CONFIG.LINE_API_ENDPOINT}/message/reply`,
+                JSON.stringify({
+                    replyToken: replyToken,
+                    messages: formattedMessages
+                })
+            ).run();
+
+            throw new Error(`LINE API 錯誤: ${response.status} - ${responseText}`);
         }
-    } catch (error) {
-        console.error('發送回覆時發生錯誤:', error);
-        throw error;
+
+        console.log('訊息發送成功');
+    } catch (error: unknown) {
+        console.error('回覆訊息失敗:', error);
+        
+        // 記錄到錯誤日誌
+        try {
+            await env.DB.prepare(`
+                INSERT INTO error_logs (
+                    timestamp,
+                    error_type,
+                    error_message,
+                    stack_trace,
+                    input_text
+                ) VALUES (?, ?, ?, ?, ?)
+            `).bind(
+                new Date().toISOString(),
+                'REPLY_MESSAGE',
+                error instanceof Error ? error.message : 'Unknown error',
+                error instanceof Error ? error.stack : '',
+                JSON.stringify(messages)
+            ).run();
+        } catch (dbError) {
+            console.error('記錄錯誤到資料庫失敗:', dbError);
+        }
+
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        throw new Error(`LINE API error: ${errorMessage}`);
     }
 }
 
-export async function handleLineWebhook(request: Request, env: Env) {
+export async function handleLineWebhook(
+    request: Request<unknown, CfProperties<unknown>>,
+    env: Env
+): Promise<Response> {
     try {
         // 更新配置
         updateConfig(env);
         
-        const clonedRequest = request.clone();
+        const clonedRequest = request.clone() as Request;
+        console.log('LINE_CHANNEL_SECRET:', env.LINE_CHANNEL_SECRET); // 添加日誌
         const isValid = await verifySignature(
             clonedRequest,
-            CONFIG.LINE_CHANNEL_SECRET
+            env.LINE_CHANNEL_SECRET
         );
         
         if (!isValid) {
@@ -554,8 +663,148 @@ export async function handleLineWebhook(request: Request, env: Env) {
         }
         
         return new Response('OK', { status: 200 });
-    } catch (error) {
+    } catch (error: unknown) {
         console.error('處理 webhook 時發生錯誤:', error);
-        return new Response('Internal Server Error', { status: 500 });
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        return new Response(errorMessage, { status: 500 });
+    }
+}
+
+// 新增指令處理函式
+async function handleHelpCommand(event: LineMessageEvent, env: Env): Promise<void> {
+    await replyMessage(event.replyToken, [{
+        type: 'text',
+        text: `📖 LINE翻譯機器人使用說明\n\n` +
+            `1️⃣ 基本指令：\n` +
+            `• /翻譯 - 開始設定翻譯語言\n` +
+            `• /設定 - 設定翻譯語言\n` +
+            `• /狀態 - 查看目前翻譯設定\n` +
+            `• /說明 - 顯示此說明\n\n` +
+            `2️⃣ 使用方式：\n` +
+            `• 設定完語言後，機器人會自動翻譯群組內的訊息\n` +
+            `• 需要設定兩個主要語言(A和B)用於雙向翻譯\n` +
+            `• 可以選擇設定第三語言(C)作為額外翻譯\n\n` +
+            `3️⃣ 翻譯規則：\n` +
+            `• 當使用語言A時：翻譯成B和C\n` +
+            `• 當使用語言B時：翻譯成A和C\n` +
+            `• 當使用語言C時：翻譯成A和B\n` +
+            `• 使用其他語言時：翻譯成A、B和C`
+    }], env);
+}
+
+// 修改設定指令處理函式
+async function handleSettingsCommand(event: LineMessageEvent, env: Env): Promise<void> {
+    console.log('處理設定指令');
+    try {
+        const flexMessage = createLanguageSelectionFlex();
+        console.log('生成的 Flex Message:', JSON.stringify(flexMessage, null, 2));
+        
+        await replyMessage(event.replyToken, [{
+            type: 'flex',
+            altText: '選擇翻譯語言',
+            contents: flexMessage
+        }], env);
+        
+        console.log('設定指令處理完成');
+    } catch (error) {
+        console.error('處理設定指令時發生錯誤:', error);
+        throw error; // 讓上層的錯誤處理機制處理
+    }
+}
+
+async function handleStatusCommand(
+    event: LineMessageEvent,
+    env: Env,
+    contextId: string,
+    contextType: string
+): Promise<void> {
+    const setting = await getLanguageSetting(env.DB, contextId, contextType);
+    if (setting) {
+        await replyMessage(event.replyToken, [{
+            type: 'text',
+            text: `📊 當前翻譯設定：\n` +
+                  `主要語言A：${getLangName(setting.primary_lang_a)}\n` +
+                  `主要語言B：${getLangName(setting.primary_lang_b)}\n` +
+                  `次要語言C：${setting.secondary_lang_c ? getLangName(setting.secondary_lang_c) : '未設定'}\n` +
+                  `自動翻譯：${setting.is_translating ? '開啟 ✅' : '關閉 ❌'}`
+        }], env);
+    } else {
+        await replyMessage(event.replyToken, [{
+            type: 'text',
+            text: '❗ 尚未設定翻譯語言，請使用 /settings 或 /設定 來設定語言。'
+        }], env);
+    }
+}
+
+export async function handleCommand(event: LineMessageEvent, env: Env): Promise<void> {
+    const text = String(event.message?.text || '').trim();
+    const command = text.slice(1).toLowerCase(); // 移除斜線並轉小寫
+    
+    console.log('處理指令:', command);
+    
+    try {
+        switch (command) {
+            case '說明':
+            case 'help':
+                console.log('執行說明指令');
+                await handleHelpCommand(event, env);
+                break;
+                
+            case '翻譯':
+            case 'translate':
+            case '設定':
+            case 'settings':
+                console.log('執行翻譯/設定指令');
+                await handleSettingsCommand(event, env);
+                break;
+                
+            case '狀態':
+            case 'status':
+                console.log('執行狀態指令');
+                const contextId = event.source.groupId || event.source.userId || '';
+                const contextType = event.source.type;
+                await handleStatusCommand(event, env, contextId, contextType);
+                break;
+                
+            default:
+                console.log('無效的指令:', command);
+                await replyMessage(event.replyToken, [{
+                    type: 'text',
+                    text: '❌ 無效的指令。請使用 /說明 查看可用指令。'
+                }], env);
+        }
+    } catch (error) {
+        console.error('處理指令時發生錯誤:', error);
+        
+        // 記錄到錯誤日誌
+        try {
+            await env.DB.prepare(`
+                INSERT INTO error_logs (
+                    timestamp,
+                    error_type,
+                    error_message,
+                    stack_trace,
+                    input_text
+                ) VALUES (?, ?, ?, ?, ?)
+            `).bind(
+                new Date().toISOString(),
+                'COMMAND_HANDLER',
+                error instanceof Error ? error.message : 'Unknown error',
+                error instanceof Error ? error.stack : '',
+                command
+            ).run();
+        } catch (dbError) {
+            console.error('記錄錯誤到資料庫失敗:', dbError);
+        }
+
+        // 發送錯誤訊息給用戶
+        try {
+            await replyMessage(event.replyToken, [{
+                type: 'text',
+                text: '❌ 處理指令時發生錯誤，請稍後再試。'
+            }], env);
+        } catch (replyError) {
+            console.error('發送錯誤訊息失敗:', replyError);
+        }
     }
 } 

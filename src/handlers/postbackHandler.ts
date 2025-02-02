@@ -71,17 +71,17 @@ export async function handlePostback(event: LinePostbackEvent, env: Env): Promis
 
                         return [{
                             type: 'text',
-                            text: `✅ 已設定主要語言A為：${getLangName(langA)}\n\n請繼續設定主要語言B`
+                            text: `✅ 已設定主要語言A為：${getLanguageDisplayName(langA)}\n\n請繼續設定主要語言B`
                         }, {
                             type: 'flex',
                             altText: '選擇主要語言B',
                             contents: createLanguageListFlex('b')
                         }];
-                    } catch (error) {
-                        console.error('設定主要語言A時發生錯誤:', error);
+                    } catch (error: unknown) {
+                        const errorMessage = error instanceof Error ? error.message : '未知錯誤';
                         return [{
                             type: 'text',
-                            text: `❌ 設定失敗：${error.message}`
+                            text: `❌ 設定失敗：${errorMessage}`
                         }];
                     }
                 }
@@ -103,17 +103,17 @@ export async function handlePostback(event: LinePostbackEvent, env: Env): Promis
 
                         return [{
                             type: 'text',
-                            text: `✅ 已設定主要語言B為：${getLangName(langB)}\n\n您可以繼續設定次要語言C，或直接開始使用翻譯功能`
+                            text: `✅ 已設定主要語言B為：${getLanguageDisplayName(langB)}\n\n您可以繼續設定次要語言C，或直接開始使用翻譯功能`
                         }, {
                             type: 'flex',
                             altText: '選擇次要語言C',
                             contents: createLanguageListFlex('c')
                         }];
-                    } catch (error) {
-                        console.error('設定主要語言B時發生錯誤:', error);
+                    } catch (error: unknown) {
+                        const errorMessage = error instanceof Error ? error.message : '未知錯誤';
                         return [{
                             type: 'text',
-                            text: `❌ 設定失敗：${error.message}`
+                            text: `❌ 設定失敗：${errorMessage}`
                         }];
                     }
                 }
@@ -137,17 +137,17 @@ export async function handlePostback(event: LinePostbackEvent, env: Env): Promis
                             type: 'text',
                             text: `✅ 語言設定已更新！\n\n` +
                                   `📊 當前翻譯設定：\n` +
-                                  `主要語言A：${getLangName(setting.primary_lang_a)}\n` +
-                                  `主要語言B：${getLangName(setting.primary_lang_b)}\n` +
-                                  `次要語言C：${getLangName(langC)}\n` +
+                                  `主要語言A：${getLanguageDisplayName(setting.primary_lang_a)}\n` +
+                                  `主要語言B：${getLanguageDisplayName(setting.primary_lang_b)}\n` +
+                                  `次要語言C：${getLanguageDisplayName(langC)}\n` +
                                   `自動翻譯：${setting.is_translating ? '開啟 ✅' : '關閉 ❌'}\n\n` +
                                   `您現在可以開始使用翻譯功能了！`
                         }];
-                    } catch (error) {
-                        console.error('設定次要語言C時發生錯誤:', error);
+                    } catch (error: unknown) {
+                        const errorMessage = error instanceof Error ? error.message : '未知錯誤';
                         return [{
                             type: 'text',
-                            text: `❌ 設定失敗：${error.message}`
+                            text: `❌ 設定失敗：${errorMessage}`
                         }];
                     }
                 }
@@ -163,34 +163,35 @@ export async function handlePostback(event: LinePostbackEvent, env: Env): Promis
         }
 
         return [];
-    } catch (error) {
-        console.error('處理 postback 時發生錯誤:', error);
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : '未知錯誤';
         return [{
             type: 'text',
-            text: `❌ 設定發生錯誤：${error.message}`
+            text: `❌ 設定失敗：${errorMessage}`
         }];
     }
 }
 
-function getLangName(langCode: string): string {
-    const langMap = {
-        'en': '英文',
-        'ja': '日文',
-        'ko': '韓文',
-        'vi': '越南文',
-        'th': '泰文',
-        'zh-TW': '繁體中文',
-        'zh-CN': '簡體中文',
-        'ru': '俄文',
-        'ar': '阿拉伯文',
-        'fr': '法文',
-        'de': '德文',
-        'es': '西班牙文',
-        'it': '義大利文',
-        'ms': '馬來文',
-        'id': '印尼文',
-        'hi': '印地文',
-        'pt': '葡萄牙文'
-    };
+const langMap: Record<string, string> = {
+    en: '英文',
+    ja: '日文',
+    ko: '韓文',
+    vi: '越南文',
+    th: '泰文',
+    'zh-TW': '繁體中文',
+    'zh-CN': '簡體中文',
+    ru: '俄文',
+    ar: '阿拉伯文',
+    fr: '法文',
+    de: '德文',
+    es: '西班牙文',
+    it: '義大利文',
+    ms: '馬來文',
+    id: '印尼文',
+    hi: '印地文',
+    pt: '葡萄牙文'
+};
+
+function getLanguageDisplayName(langCode: string): string {
     return langMap[langCode] || langCode;
 } 

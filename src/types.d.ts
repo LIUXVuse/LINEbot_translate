@@ -37,7 +37,7 @@ export type LineEvent = LineMessageEvent | LinePostbackEvent;
 // 環境變數型別定義
 export interface Env {
     DB: D1Database;
-    LINE_CHANNEL_SECRET: string;
-    LINE_CHANNEL_ACCESS_TOKEN: string;
+    CHANNEL_SECRET: string;
+    CHANNEL_ACCESS_TOKEN: string;
     DEEPSEEK_API_KEY: string;
 } 

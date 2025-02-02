@@ -34,8 +34,7 @@ export async function saveLanguageSetting(
             INSERT INTO language_settings 
             (context_id, context_type, primary_lang_a, primary_lang_b, secondary_lang_c, is_translating)
             VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(context_id) DO UPDATE SET
-                context_type = excluded.context_type,
+            ON CONFLICT(context_id, context_type) DO UPDATE SET
                 primary_lang_a = excluded.primary_lang_a,
                 primary_lang_b = excluded.primary_lang_b,
                 secondary_lang_c = excluded.secondary_lang_c,
